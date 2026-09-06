@@ -105,6 +105,27 @@ pub struct Fragment {
     pub blame: Option<BlameEntry>,
 }
 
+/// How a `similar` clone was produced (issue #999).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SimilarityMethod {
+    /// Exact matches merged across a gap of unmatched lines
+    /// (`--max-gap-lines`); `similarity` is matched tokens over the span.
+    Gap,
+    /// Whole functions compared by syntax-tree structure (`--similarity`);
+    /// `similarity` is the weighted Jaccard index of node-type shingles.
+    Ast,
+}
+
+impl SimilarityMethod {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SimilarityMethod::Gap => "gap",
+            SimilarityMethod::Ast => "ast",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CpdClone {
     pub format: String,
@@ -124,6 +145,10 @@ pub struct CpdClone {
     /// longer merged span, in `(0, 1)`. `None` for exact and renamed clones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub similarity: Option<f32>,
+    /// Which mechanism produced a `similar` clone; the two scores are not
+    /// on the same scale, so reporters show it next to the value.
+    #[serde(default, rename = "method", skip_serializing_if = "Option::is_none")]
+    pub similarity_method: Option<SimilarityMethod>,
 }
 
 impl CpdClone {
@@ -277,6 +302,7 @@ mod tests {
             is_new: false,
             kind: Default::default(),
             similarity: None,
+            similarity_method: None,
         };
         let json = serde_json::to_string(&clone).unwrap();
         assert!(json.contains("abc123"));

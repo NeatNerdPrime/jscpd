@@ -1,6 +1,6 @@
 // shared.rs — common reporter utilities to keep output formatting DRY.
 
-use cpd_core::models::{CloneKind, CpdClone, Fragment, StatRow, Statistics};
+use cpd_core::models::{CloneKind, CpdClone, Fragment, SimilarityMethod, StatRow, Statistics};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
@@ -341,12 +341,21 @@ pub fn format_location(
 }
 
 /// Label for a clone header: the format, plus `, renamed` for Type-2 clones
-/// and `, similar ~0.91` for near-miss clones.
-pub fn clone_label(format: &str, kind: CloneKind, similarity: Option<f32>) -> String {
+/// and `, similar (gap) ~0.91` / `, similar (ast) ~0.75` for near-miss
+/// clones — the method matters because the two scores are not comparable.
+pub fn clone_label(
+    format: &str,
+    kind: CloneKind,
+    similarity: Option<f32>,
+    method: Option<SimilarityMethod>,
+) -> String {
     match (kind, similarity) {
         (CloneKind::Exact, _) => format.to_string(),
         (CloneKind::Renamed, _) => format!("{format}, renamed"),
-        (CloneKind::Similar, Some(s)) => format!("{format}, similar ~{s:.2}"),
+        (CloneKind::Similar, Some(s)) => match method {
+            Some(m) => format!("{format}, similar ({}) ~{s:.2}", m.as_str()),
+            None => format!("{format}, similar ~{s:.2}"),
+        },
         (CloneKind::Similar, None) => format!("{format}, similar"),
     }
 }
@@ -357,7 +366,12 @@ pub fn clone_label(format: &str, kind: CloneKind, similarity: Option<f32>) -> St
 pub fn print_clone_header(style: &Style, clone: &CpdClone) {
     let header = style.bold(&format!(
         "Clone found ({})",
-        clone_label(&clone.format, clone.kind, clone.similarity)
+        clone_label(
+            &clone.format,
+            clone.kind,
+            clone.similarity,
+            clone.similarity_method
+        )
     ));
     let is_new = clone.is_new;
     if is_new {
@@ -657,6 +671,46 @@ pub mod fixtures {
             is_new: false,
             kind: Default::default(),
             similarity: None,
+            similarity_method: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+
+    #[test]
+    fn clone_label_shows_kind_method_and_score() {
+        assert_eq!(
+            clone_label("javascript", CloneKind::Exact, None, None),
+            "javascript"
+        );
+        assert_eq!(
+            clone_label("javascript", CloneKind::Renamed, None, None),
+            "javascript, renamed"
+        );
+        assert_eq!(
+            clone_label(
+                "javascript",
+                CloneKind::Similar,
+                Some(0.905),
+                Some(SimilarityMethod::Gap)
+            ),
+            "javascript, similar (gap) ~0.91"
+        );
+        assert_eq!(
+            clone_label(
+                "typescript",
+                CloneKind::Similar,
+                Some(0.752),
+                Some(SimilarityMethod::Ast)
+            ),
+            "typescript, similar (ast) ~0.75"
+        );
+        assert_eq!(
+            clone_label("java", CloneKind::Similar, None, None),
+            "java, similar"
+        );
     }
 }

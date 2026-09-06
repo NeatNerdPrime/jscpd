@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     hash::{base_pow, hash_window, roll, token_hash},
-    models::{CloneKind, CpdClone, DetectionToken, Fragment, Location, SourceFile, TokenKind},
+    models::{
+        CloneKind, CpdClone, DetectionToken, Fragment, Location, SimilarityMethod, SourceFile,
+        TokenKind,
+    },
 };
 
 // ---------------------------------------------------------------------------
@@ -539,6 +542,7 @@ fn flush_clone(
         is_new: false,
         kind,
         similarity: None,
+        similarity_method: None,
     });
 }
 
@@ -653,6 +657,7 @@ pub fn merge_gapped_clones(mut clones: Vec<CpdClone>, max_gap_lines: usize) -> V
                 let span_b = last.fragment_b.range[1] - last.fragment_b.range[0] + 1;
                 last.token_count = matched_tokens;
                 last.similarity = Some(matched_tokens as f32 / span_a.max(span_b) as f32);
+                last.similarity_method = Some(SimilarityMethod::Gap);
                 last.kind = CloneKind::Similar;
             }
             _ => {
@@ -887,6 +892,7 @@ fn add_secondary_clones(
                 is_new: false,
                 kind: Default::default(),
                 similarity: None,
+                similarity_method: None,
             },
             source_a: candidate.source_a,
             source_b: candidate.source_b,
@@ -1111,6 +1117,7 @@ mod tests {
             is_new: false,
             kind: CloneKind::Exact,
             similarity: None,
+            similarity_method: None,
         }
     }
 

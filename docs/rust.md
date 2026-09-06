@@ -328,12 +328,12 @@ A copy with a line inserted, removed or changed in the middle shows up as two sh
 
 ```bash
 jscpd src/                       # a.js 1-4 ↔ b.js 1-4, a.js 4-9 ↔ b.js 5-10: two exact clones
-jscpd --max-gap-lines 1 src/     # Clone found (javascript, similar ~0.85): a.js 1-9 ↔ b.js 1-10
+jscpd --max-gap-lines 1 src/     # Clone found (javascript, similar (gap) ~0.85): a.js 1-9 ↔ b.js 1-10
 ```
 
 A merged clone's `tokens` is the number of matched tokens and `similarity` is that number divided by the tokens of the longer merged span, so a single inserted line in a 60-token block gives roughly `0.9`. Chains of matches merge transitively, and the merge is applied after every other filter (`--min-lines`, `--skip-local`, `--skip-isolated`). Because merging only ever joins clones the exact run already reported, it cannot introduce a match that was not there; it removes fragmentation. It applies to every language.
 
-Reporting: the console prints `Clone found (javascript, similar ~0.85)`, the `ai` reporter appends `[~0.85]`, the JSON report adds `"kind": "similar"` and a `"similarity"` value, SARIF files merged clones under `jscpd/near-miss-code` with a `similarity` property, and Code Climate uses the same `check_name`. Duplicated-line statistics count the merged span, gap lines included. With the default `0` the merge pass is skipped entirely and output is identical to earlier releases. See [`fixtures/type3-demo`](../fixtures/type3-demo/README.md) for a runnable example.
+Reporting: the console prints `Clone found (javascript, similar (gap) ~0.85)`, the `ai` reporter appends `[~0.85 gap]`, the JSON report adds `"kind": "similar"`, a `"similarity"` value and `"method": "gap"`, SARIF files merged clones under `jscpd/near-miss-code` with `similarity` and `similarity_method` properties, and Code Climate uses the same `check_name`. The method is shown because the two near-miss mechanisms score on different scales: `gap` is matched tokens over the merged span, `ast` (from `--similarity`, below) is structural overlap of whole functions. Duplicated-line statistics count the merged span, gap lines included. With the default `0` the merge pass is skipped entirely and output is identical to earlier releases. See [`fixtures/type3-demo`](../fixtures/type3-demo/README.md) for a runnable example.
 
 ### Function-level similarity with `--similarity`
 
@@ -344,7 +344,7 @@ jscpd --similarity 0.85 src/        # near-identical structure: renames, literal
 jscpd --similarity 0.7 src/         # looser: a couple of added or removed statements
 ```
 
-Functions must clear `--min-tokens` and `--min-lines` on their own, nested functions are never paired with their parent, and a pair that an exact, renamed or merged clone already covers is not reported again. Reporting is the same as for merged clones (`kind: similar`, `similarity`, `jscpd/near-miss-code` in SARIF); `tokens` is the smaller function's token count and the fragments span the whole functions. Values outside `(0, 1]` print a warning and fall back to `1`.
+Functions must clear `--min-tokens` and `--min-lines` on their own, nested functions are never paired with their parent, and a pair that an exact, renamed or merged clone already covers is not reported again. Reporting is the same as for merged clones except for the method: the console prints `Clone found (javascript, similar (ast) ~0.75)`, the `ai` reporter `[~0.75 ast]`, JSON carries `"method": "ast"` and SARIF `similarity_method`; `tokens` is the smaller function's token count and the fragments span the whole functions. Values outside `(0, 1]` print a warning and fall back to `1`.
 
 Scoring needs a syntax tree, and today only JavaScript/TypeScript have one (oxc). Each language plugs in through the `FunctionExtractor` trait in `cpd-tokenizer` (`functions.rs`): a grammar id, the formats it serves, and a walk that opens a function at every function-like node and records the node-type sequence inside it. Signatures carry their grammar id and are only compared within one grammar, so a tree-sitter-backed extractor for another language is a self-contained addition; the scoring, CLI, MCP tool and reporters need no change. Formats without an extractor are a silent no-op. The MCP `check_duplication` tool accepts the same `similarity` argument and returns the structurally similar project functions for each function in the snippet.
 

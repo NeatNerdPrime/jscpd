@@ -36,7 +36,7 @@ jscpd fixtures/type3-demo/inserted-line
 # Found 2 clones.
 
 jscpd fixtures/type3-demo/inserted-line --max-gap-lines 1
-# Clone found (javascript, similar ~0.91)
+# Clone found (javascript, similar (gap) ~0.91)
 #  - save-account.js [1:1 - 12:2] (12 lines, 157 tokens)
 #    save-user.js [1:1 - 11:2]
 # Found 1 clones.
@@ -57,7 +57,7 @@ jscpd fixtures/type3-demo/wide-gap --max-gap-lines 1
 # Found 2 clones.
 
 jscpd fixtures/type3-demo/wide-gap --max-gap-lines 2
-# Clone found (javascript, similar ~0.91)
+# Clone found (javascript, similar (gap) ~0.91)
 #  - place-order-guarded.js [1:1 - 15:2] (15 lines, 172 tokens)
 #    place-order.js [1:1 - 12:2]
 # Found 1 clones.
@@ -83,7 +83,7 @@ jscpd fixtures/type3-demo/similar-functions --similarity 0.85
 # Found 0 clones.
 
 jscpd fixtures/type3-demo/similar-functions --similarity 0.7
-# Clone found (javascript, similar ~0.75)
+# Clone found (javascript, similar (ast) ~0.75)
 #  - credit-note.js [1:8 - 19:2] (19 lines, 126 tokens)
 #    invoice.js [1:8 - 17:2]
 # Found 1 clones.
@@ -113,7 +113,8 @@ jscpd fixtures/type3-demo --max-gap-lines 2 --similarity 0.7
 # Found 3 clones.   (merged clones cover the whole functions, so only similar-functions/ adds one)
 
 jscpd fixtures/type3-demo --max-gap-lines 2 --similarity 0.7 --reporters json,silent --output report
-# every entry in "duplicates" has "kind": "similar" and a "similarity" value
+# every entry in "duplicates" has "kind": "similar", a "similarity" value and
+# "method": "gap" or "ast" — the two scores are not on the same scale
 ```
 
 Merging only joins clones the exact run already reported, so it never adds a

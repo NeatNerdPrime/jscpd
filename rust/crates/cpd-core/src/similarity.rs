@@ -18,7 +18,7 @@
 //! this module.
 
 use crate::detect::PreparedSource;
-use crate::models::{CloneKind, CpdClone, Fragment, Location};
+use crate::models::{CloneKind, CpdClone, Fragment, Location, SimilarityMethod};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Shingle length over the node-type sequence.
@@ -418,6 +418,7 @@ fn make_clone(
         is_new: false,
         kind: CloneKind::Similar,
         similarity: Some(similarity),
+        similarity_method: Some(SimilarityMethod::Ast),
     }
 }
 

@@ -150,6 +150,9 @@ impl Reporter for SarifReporter {
             if let Some(similarity) = clone.similarity_rounded() {
                 props["similarity"] = json!(similarity);
             }
+            if let Some(method) = clone.similarity_method {
+                props["similarity_method"] = json!(method.as_str());
+            }
             if let Some(hash) = &clone_hash {
                 props["clone_hash"] = json!(hash);
             }
@@ -322,6 +325,7 @@ mod tests {
             is_new: false,
             kind: Default::default(),
             similarity: None,
+            similarity_method: None,
         }
     }
 
@@ -392,11 +396,13 @@ mod tests {
         let mut similar = make_clone();
         similar.kind = CloneKind::Similar;
         similar.similarity = Some(0.9);
+        similar.similarity_method = Some(cpd_core::models::SimilarityMethod::Ast);
         let content = run_sarif_report(&[similar], false);
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
         let result = &parsed["runs"][0]["results"][0];
         assert_eq!(result["ruleId"], "jscpd/near-miss-code");
         assert_eq!(result["properties"]["similarity"], 0.9);
+        assert_eq!(result["properties"]["similarity_method"], "ast");
         let rules = parsed["runs"][0]["tool"]["driver"]["rules"]
             .as_array()
             .unwrap();
