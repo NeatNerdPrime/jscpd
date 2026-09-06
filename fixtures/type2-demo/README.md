@@ -12,6 +12,7 @@ default thresholds; the `Found N clones.` line is the console reporter's.
 | `identifiers/` | `--ignore-identifiers` | 0 clones | 1 clone, `renamed` |
 | `literals/` | `--ignore-literals` | 0 clones | 1 clone, `renamed` |
 | `annotations/` | `--ignore-annotations` | 0 clones | 1 clone, `renamed` |
+| `annotation-types/` | `--ignore-annotations` keeps `@interface` | 0 clones | see below |
 
 Clones found this way are reported with `kind: renamed` (`kind: exact` for
 token-identical pairs), so exact and similar code stay distinguishable in
@@ -72,6 +73,34 @@ jscpd fixtures/type2-demo/annotations --ignore-annotations
 # Found 1 clones.
 ```
 
+## `annotation-types/` — `@interface` is a declaration, not an annotation
+
+`Marker.java` and `Tag.java` declare the same annotation type under two
+names, each preceded by a real annotation use (`@Retention(...)`).
+`--ignore-annotations` drops the *use* and keeps the `@interface` keyword:
+`@` followed by a keyword never starts an annotation run. The token counts
+pin that down: the `@Retention(RetentionPolicy.RUNTIME)` use is 7 tokens,
+`@interface` is 2, and only the first 7 disappear.
+
+```bash
+jscpd fixtures/type2-demo/annotation-types
+# Found 0 clones.
+
+jscpd fixtures/type2-demo/annotation-types --ignore-identifiers
+# Clone found (java, renamed)
+#  - Marker.java [1:1 - 10:2] (10 lines, 62 tokens)
+#    Tag.java [1:1 - 10:2]
+# Found 1 clones.
+
+jscpd fixtures/type2-demo/annotation-types --ignore-identifiers --ignore-annotations
+# Clone found (java, renamed)
+#  - Marker.java [1:1 - 10:2] (10 lines, 55 tokens)
+#    Tag.java [1:1 - 10:2]
+# Found 1 clones.
+```
+
+If `@interface` were stripped as well, the second clone would be 53 tokens.
+
 ## All three together
 
 ```bash
@@ -79,7 +108,7 @@ jscpd fixtures/type2-demo
 # Found 0 clones.
 
 jscpd fixtures/type2-demo --ignore-identifiers --ignore-literals --ignore-annotations
-# Found 3 clones.
+# Found 4 clones.
 
 jscpd fixtures/type2-demo --ignore-identifiers --ignore-literals --ignore-annotations --reporters json,silent --output report
 # report/jscpd-report.json: every entry in "duplicates" has "kind": "renamed"
