@@ -90,6 +90,7 @@ fn make_test_clone() -> CpdClone {
         is_new: false,
         kind: Default::default(),
         similarity: None,
+        similarity_method: None,
     }
 }
 
@@ -158,6 +159,7 @@ fn make_test_clone_with_real_files(dir: &Path) -> CpdClone {
         is_new: false,
         kind: Default::default(),
         similarity: None,
+        similarity_method: None,
     }
 }
 

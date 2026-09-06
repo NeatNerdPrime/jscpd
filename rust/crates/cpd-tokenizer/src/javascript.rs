@@ -159,7 +159,7 @@ const fn map_kind(kind: Kind) -> TokenKind {
     }
 }
 
-fn source_type_for_format(format: &str) -> SourceType {
+pub(crate) fn source_type_for_format(format: &str) -> SourceType {
     let filename = match format {
         "typescript" => "input.ts",
         "tsx" => "input.tsx",

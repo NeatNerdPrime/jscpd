@@ -90,6 +90,9 @@ fn clone_to_dup(
     if let Some(similarity) = clone.similarity_rounded() {
         duplicate["similarity"] = json!(similarity);
     }
+    if let Some(method) = clone.similarity_method {
+        duplicate["method"] = json!(method.as_str());
+    }
     duplicate
 }
 
@@ -338,11 +341,14 @@ mod tests {
         let mut similar = make_clone("nonexistent.js", "also_nonexistent.js", 10);
         similar.kind = cpd_core::models::CloneKind::Similar;
         similar.similarity = Some(0.851_063_8);
+        similar.similarity_method = Some(cpd_core::models::SimilarityMethod::Gap);
         let exact = make_clone("nonexistent.js", "also_nonexistent.js", 10);
         let content = run_json_report(&[similar, exact], false);
         let parsed = parse_json_report(&content);
         assert_eq!(parsed["duplicates"][0]["kind"], "similar");
         assert_eq!(parsed["duplicates"][0]["similarity"], 0.851);
+        assert_eq!(parsed["duplicates"][0]["method"], "gap");
+        assert!(parsed["duplicates"][1].get("method").is_none());
         assert!(parsed["duplicates"][1].get("similarity").is_none());
     }
 

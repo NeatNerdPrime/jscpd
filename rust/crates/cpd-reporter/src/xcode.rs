@@ -100,6 +100,7 @@ mod tests {
             is_new: false,
             kind: Default::default(),
             similarity: None,
+            similarity_method: None,
         };
         let opts = ReporterOptions::new(PathBuf::from("/tmp"));
         let reporter = XcodeReporter::new(&opts);

@@ -13,16 +13,19 @@
 
 use cpd_core::detect::{PathFilters, PreparedSource, detect_prepared};
 use cpd_core::models::{CpdClone, Statistics};
+use cpd_core::similarity::{FunctionSig, FunctionSource, SimilarityIndex};
 use cpd_finder::orchestrate::{
     PreparedScan, RunConfig, build_thread_pool, canonicalize_all, prepare_scan_in,
     strip_types_formats,
 };
 use cpd_finder::statistics;
+use cpd_tokenizer::functions::{extract_functions, supports_functions};
 use cpd_tokenizer::tokenizer::{TokenizeOptions, tokenize_to_detection};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 const SNIPPET_ID: &str = "snippet://check";
 /// Default cap on clones returned by check_current_directory — keeps tool
@@ -51,6 +54,10 @@ pub struct McpServer {
     scan_roots: Vec<PathBuf>,
     /// Canonicalized isolation groups, for skip_isolated.
     isolated_groups: Vec<Vec<PathBuf>>,
+    /// LSH index over the functions of the JS/TS sources, built on the first
+    /// check_duplication call with a 'similarity' argument, reused by every
+    /// later query, and dropped on rescan.
+    function_index: OnceLock<SimilarityIndex>,
 }
 
 impl McpServer {
@@ -75,6 +82,7 @@ impl McpServer {
             file_count: 0,
             scan_roots,
             isolated_groups,
+            function_index: OnceLock::new(),
         };
         server.rescan();
         server
@@ -94,6 +102,7 @@ impl McpServer {
     /// Walk + tokenize the configured paths, refresh the cached pools and
     /// project statistics.
     fn rescan(&mut self) {
+        self.function_index = OnceLock::new();
         let PreparedScan { sources, prepared } = prepare_scan_in(&self.pool, &self.config);
         self.file_count = sources.len();
 
@@ -240,7 +249,22 @@ impl McpServer {
                         "check_duplication requires string arguments 'code' and 'format'",
                     );
                 };
-                match self.check_duplication(code, format, limit) {
+                // Absent: the server's --similarity (off at the default 1).
+                // 1 means exact matches only, so it yields no similarity section.
+                let similarity = match args.get("similarity") {
+                    None | Some(Value::Null) => self.config.similarity_threshold(),
+                    Some(v) => match v.as_f64() {
+                        Some(s) if s > 0.0 && s <= 1.0 => (s < 1.0).then_some(s as f32),
+                        _ => {
+                            return err(
+                                id,
+                                INVALID_PARAMS,
+                                "'similarity' must be a number in (0, 1]",
+                            );
+                        }
+                    },
+                };
+                match self.check_duplication(code, format, limit, similarity) {
                     Ok(payload) => ok(id, tool_text(&payload, false)),
                     Err(message) => ok(id, tool_text(&json!({ "error": message }), true)),
                 }
@@ -306,7 +330,93 @@ impl McpServer {
         })
     }
 
-    fn check_duplication(&self, code: &str, format: &str, limit: usize) -> Result<Value, String> {
+    /// Similarity index over every JS/TS source in the pools. Built once per
+    /// scan on demand: prepared sources keep only token spans, so files are
+    /// re-read from disk unless the scan already ran with --similarity.
+    fn similarity_index(&self) -> &SimilarityIndex {
+        self.function_index.get_or_init(|| {
+            let mut out = Vec::new();
+            for ps in self.pools.values().flatten() {
+                if !supports_functions(&ps.format) {
+                    continue;
+                }
+                let functions = if ps.functions.is_empty() {
+                    let Ok(content) = std::fs::read_to_string(&ps.id) else {
+                        continue;
+                    };
+                    extract_functions(&content, &ps.format)
+                        .into_iter()
+                        .filter_map(|f| {
+                            FunctionSig::build(
+                                f.grammar, f.name, f.start, f.end, &f.kinds, &ps.spans,
+                            )
+                        })
+                        .collect()
+                } else {
+                    ps.functions.clone()
+                };
+                if !functions.is_empty() {
+                    out.push(FunctionSource {
+                        id: ps.id.clone(),
+                        format: ps.format.clone(),
+                        functions,
+                    });
+                }
+            }
+            out.sort_by(|a, b| a.id.cmp(&b.id));
+            SimilarityIndex::build(out, self.config.min_tokens, self.config.min_lines)
+        })
+    }
+
+    /// Structurally similar project functions for every function of the
+    /// snippet, best first. `(similarity, payload)` pairs.
+    fn similar_functions(
+        &self,
+        code: &str,
+        format: &str,
+        spans: &[(cpd_core::models::Location, cpd_core::models::Location)],
+        threshold: f32,
+    ) -> Vec<(f32, Value)> {
+        let query: Vec<FunctionSig> = extract_functions(code, format)
+            .into_iter()
+            .filter_map(|f| FunctionSig::build(f.grammar, f.name, f.start, f.end, &f.kinds, spans))
+            .collect();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let index = self.similarity_index();
+        let sources = index.sources();
+        let mut hits = Vec::new();
+        for q in &query {
+            for (si, fi, sim) in index.query(q, threshold) {
+                let src = &sources[si];
+                let f = &src.functions[fi];
+                hits.push((
+                    sim,
+                    json!({
+                        "file": self.display_path(&src.id),
+                        "name": f.name,
+                        "fileStartLine": f.start.line,
+                        "fileEndLine": f.end.line,
+                        "snippetName": q.name,
+                        "snippetStartLine": q.start.line,
+                        "snippetEndLine": q.end.line,
+                        "similarity": (f64::from(sim) * 1000.0).round() / 1000.0,
+                    }),
+                ));
+            }
+        }
+        hits.sort_by(|a, b| b.0.total_cmp(&a.0));
+        hits
+    }
+
+    fn check_duplication(
+        &self,
+        code: &str,
+        format: &str,
+        limit: usize,
+        similarity: Option<f32>,
+    ) -> Result<Value, String> {
         let format = self.resolve_format(format)?;
 
         let opts = TokenizeOptions {
@@ -334,6 +444,13 @@ impl McpServer {
 
         let snippet =
             PreparedSource::from_detection_tokens(SNIPPET_ID.into(), format.into(), &det_tokens);
+        let similar = similarity.map(|t| {
+            if supports_functions(format) {
+                self.similar_functions(code, format, &snippet.spans, t)
+            } else {
+                Vec::new()
+            }
+        });
         let mut pool = self
             .pools
             .get(&self.pool_key(format))
@@ -396,6 +513,17 @@ impl McpServer {
             payload["note"] = json!(format!(
                 "match list truncated to {limit}; pass a higher 'limit' for more"
             ));
+        }
+        if let Some(hits) = similar {
+            payload["similarCount"] = json!(hits.len());
+            payload["similar"] =
+                Value::Array(hits.into_iter().take(limit).map(|(_, v)| v).collect());
+            if !supports_functions(format) {
+                payload["similarNote"] = json!(format!(
+                    "function similarity is available for {} snippets",
+                    cpd_tokenizer::functions::supported_function_formats().join(", ")
+                ));
+            }
         }
         Ok(payload)
     }
@@ -490,7 +618,7 @@ fn tool_definitions() -> Value {
     json!([
         {
             "name": "check_duplication",
-            "description": "Check a code snippet for duplications against the scanned project. Returns matching project locations with line ranges, biggest matches first.",
+            "description": "Check a code snippet for duplications against the scanned project. Returns matching project locations with line ranges, biggest matches first. With 'similarity', also returns project functions structurally similar to the snippet's functions (JavaScript/TypeScript), best first.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -500,6 +628,12 @@ fn tool_definitions() -> Value {
                         "type": "integer",
                         "minimum": 0,
                         "description": "Maximum matches to include in the response (default 100); 'count' always carries the untruncated total"
+                    },
+                    "similarity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "maximum": 1,
+                        "description": "Also find project functions whose AST similarity to the snippet's functions reaches this ratio (e.g. 0.85); 1 means exact matches only (no similarity section); defaults to the server's --similarity; JavaScript/TypeScript only"
                     }
                 },
                 "required": ["code", "format"]

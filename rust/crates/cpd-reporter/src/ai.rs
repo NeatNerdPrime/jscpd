@@ -72,7 +72,10 @@ impl Reporter for AiReporter {
             let line = compress_clone_line(path_a, path_b, &range_a, &range_b);
             match (clone.kind, clone.similarity) {
                 (CloneKind::Renamed, _) => println!("{} (renamed)", line),
-                (CloneKind::Similar, Some(s)) => println!("{} [~{:.2}]", line, s),
+                (CloneKind::Similar, Some(s)) => match clone.similarity_method {
+                    Some(m) => println!("{} [~{:.2} {}]", line, s, m.as_str()),
+                    None => println!("{} [~{:.2}]", line, s),
+                },
                 (CloneKind::Similar, None) => println!("{} [~]", line),
                 (CloneKind::Exact, _) => println!("{}", line),
             }

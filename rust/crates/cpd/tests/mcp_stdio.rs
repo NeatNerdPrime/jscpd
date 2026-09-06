@@ -113,6 +113,95 @@ fn mcp_stdio_session_end_to_end() {
     assert!(stderr.contains("scanned"), "startup log goes to stderr");
 }
 
+/// `check_duplication` with a `similarity` argument returns structurally
+/// similar project functions (issue #999, stage 2) and rejects ratios
+/// outside (0, 1].
+#[test]
+fn mcp_check_duplication_similarity() {
+    let dir = std::env::temp_dir().join(format!("cpd-mcp-similarity-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("invoice.js"),
+        "export function buildInvoice(order, customer, taxRate) {\n  const lines = [];\n  for (const item of order.items) {\n    const net = item.price * item.quantity;\n    lines.push({ sku: item.sku, quantity: item.quantity, net });\n  }\n  const subtotal = lines.reduce((sum, line) => sum + line.net, 0);\n  const tax = Math.round(subtotal * taxRate * 100) / 100;\n  return { number: nextInvoiceNumber(), customer: customer.id, lines, subtotal, tax, total: subtotal + tax };\n}\n",
+    )
+    .unwrap();
+    let snippet = "export function buildCreditNote(refund, account, vatRate) {\n  const entries = [];\n  for (const item of refund.items) {\n    if (!item.refundable) continue;\n    const net = item.price * item.quantity;\n    entries.push({ sku: item.sku, quantity: item.quantity, net });\n  }\n  const subtotal = entries.reduce((sum, entry) => sum + entry.net, 0);\n  const vat = Math.round(subtotal * vatRate * 100) / 100;\n  logger.info('credit note', { account: account.id, subtotal });\n  return { number: nextCreditNoteNumber(), account: account.id, entries, subtotal, vat, total: subtotal + vat };\n}\n";
+    let mut child = Command::new(cpd_bin())
+        .args(["--mcp"])
+        .arg(&dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn cpd --mcp");
+    let code = serde_json::to_string(snippet).unwrap();
+    let requests = [
+        r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}"#.to_string(),
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#.to_string(),
+        format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"check_duplication","arguments":{{"code":{code},"format":"javascript","similarity":0.7}}}}}}"#
+        ),
+        format!(
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"check_duplication","arguments":{{"code":{code},"format":"javascript","similarity":0.95}}}}}}"#
+        ),
+        format!(
+            r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"check_duplication","arguments":{{"code":{code},"format":"javascript","similarity":2}}}}}}"#
+        ),
+        format!(
+            r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"check_duplication","arguments":{{"code":{code},"format":"javascript","similarity":1}}}}}}"#
+        ),
+    ];
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        for req in &requests {
+            writeln!(stdin, "{req}").unwrap();
+        }
+    }
+    let output = child.wait_with_output().expect("cpd --mcp must exit");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let responses: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("valid JSON per line"))
+        .collect();
+    assert_eq!(responses.len(), 5, "stdout: {stdout}");
+    let payload = |i: usize| -> serde_json::Value {
+        serde_json::from_str(
+            responses[i]["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let loose = payload(1);
+    assert_eq!(loose["count"], 0, "no exact match: {loose}");
+    assert_eq!(loose["similarCount"], 1, "{loose}");
+    let hit = &loose["similar"][0];
+    assert!(hit["file"].as_str().unwrap().ends_with("invoice.js"));
+    assert_eq!(hit["name"], "buildInvoice");
+    assert_eq!(hit["snippetName"], "buildCreditNote");
+    let sim = hit["similarity"].as_f64().unwrap();
+    assert!(sim > 0.7 && sim < 0.9, "got {sim}");
+    let strict = payload(2);
+    assert_eq!(strict["similarCount"], 0, "{strict}");
+    let exact_only = payload(4);
+    assert!(
+        exact_only.get("similarCount").is_none(),
+        "1 means exact matches only, no similarity section: {exact_only}"
+    );
+    assert!(
+        responses[3]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("similarity"),
+        "out-of-range ratio is a parameter error: {}",
+        responses[3]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn mcp_parse_error_is_reported_not_fatal() {
     let dir = fixture_dir();

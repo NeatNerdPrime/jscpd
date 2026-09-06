@@ -84,6 +84,7 @@ cpd [OPTIONS] [PATH]...
 | `--ignore-literals` | | Treat all string literals as equal and all numeric literals as equal | off |
 | `--ignore-annotations` | | Skip annotations and decorators (`@Name`, `@Name(...)`) before detection | off |
 | `--max-gap-lines` | | Merge clones of one file pair separated by at most N unmatched lines in both files into one near-miss clone reported as `similar`. See [Type-3 clones](#type-3-clones-near-miss-merging-with---max-gap-lines) | 0 (off) |
+| `--similarity` | | Report JavaScript/TypeScript function pairs whose syntax-tree similarity reaches RATIO, a number in `(0, 1]`, as `similar` clones; `1` means exact matches only. See [function similarity](#function-level-similarity-with---similarity) | 1 (off) |
 | `--formats-exts` | | Custom format-to-extension mapping (e.g. `javascript:es,es6;dart:dt`) | — |
 | `--formats-names` | | Custom format-to-filename mapping | — |
 | `--cross-formats` | | Detect clones across formats: `;`-separated groups of `,`-separated formats (e.g. `javascript,typescript`). Preset `js-ts` = `javascript,jsx,typescript,tsx` | — |
@@ -327,14 +328,25 @@ A copy with a line inserted, removed or changed in the middle shows up as two sh
 
 ```bash
 jscpd src/                       # a.js 1-4 ↔ b.js 1-4, a.js 4-9 ↔ b.js 5-10: two exact clones
-jscpd --max-gap-lines 1 src/     # Clone found (javascript, similar ~0.85): a.js 1-9 ↔ b.js 1-10
+jscpd --max-gap-lines 1 src/     # Clone found (javascript, similar (gap) ~0.85): a.js 1-9 ↔ b.js 1-10
 ```
 
 A merged clone's `tokens` is the number of matched tokens and `similarity` is that number divided by the tokens of the longer merged span, so a single inserted line in a 60-token block gives roughly `0.9`. Chains of matches merge transitively, and the merge is applied after every other filter (`--min-lines`, `--skip-local`, `--skip-isolated`). Because merging only ever joins clones the exact run already reported, it cannot introduce a match that was not there; it removes fragmentation. It applies to every language.
 
-Reporting: the console prints `Clone found (javascript, similar ~0.85)`, the `ai` reporter appends `[~0.85]`, the JSON report adds `"kind": "similar"` and a `"similarity"` value, SARIF files merged clones under `jscpd/near-miss-code` with a `similarity` property, and Code Climate uses the same `check_name`. Duplicated-line statistics count the merged span, gap lines included. With the default `0` the merge pass is skipped entirely and output is identical to earlier releases. See [`fixtures/type3-demo`](../fixtures/type3-demo/README.md) for a runnable example.
+Reporting: the console prints `Clone found (javascript, similar (gap) ~0.85)`, the `ai` reporter appends `[~0.85 gap]`, the JSON report adds `"kind": "similar"`, a `"similarity"` value and `"method": "gap"`, SARIF files merged clones under `jscpd/near-miss-code` with `similarity` and `similarity_method` properties, and Code Climate uses the same `check_name`. The method is shown because the two near-miss mechanisms score on different scales: `gap` is matched tokens over the merged span, `ast` (from `--similarity`, below) is structural overlap of whole functions. Duplicated-line statistics count the merged span, gap lines included. With the default `0` the merge pass is skipped entirely and output is identical to earlier releases. See [`fixtures/type3-demo`](../fixtures/type3-demo/README.md) for a runnable example.
 
-Function-level similarity scoring for JavaScript and TypeScript (AST-based, catching edits spread through a function rather than a single gap) is the second stage of [#999](https://github.com/kucherenko/jscpd/issues/999) and is not part of this option.
+### Function-level similarity with `--similarity`
+
+Edits spread through a function rather than concentrated in one gap still escape a token window. `--similarity RATIO` (config key `similarity`, a number in `(0, 1]`; the default `1` means exact matches only, so the pass never runs until you set a lower value) compares whole functions instead: every function declaration, function expression, method and arrow function in a JavaScript, TypeScript, JSX or TSX file is summarized by the bag of 4-grams over the pre-order sequence of its syntax-tree node *types*, and two functions are reported as one `similar` clone when the weighted Jaccard index of their bags reaches `RATIO`. Names and literal values are not part of the summary, so a renamed copy scores `1.0`; one inserted line scores about `0.9`; two inserted statements plus renames score about `0.75`. Candidates come from a MinHash index, so the search stays close to linear in the number of functions.
+
+```bash
+jscpd --similarity 0.85 src/        # near-identical structure: renames, literal changes, a one-line edit
+jscpd --similarity 0.7 src/         # looser: a couple of added or removed statements
+```
+
+Functions must clear `--min-tokens` and `--min-lines` on their own, nested functions are never paired with their parent, and a pair that an exact, renamed or merged clone already covers is not reported again. Reporting is the same as for merged clones except for the method: the console prints `Clone found (javascript, similar (ast) ~0.75)`, the `ai` reporter `[~0.75 ast]`, JSON carries `"method": "ast"` and SARIF `similarity_method`; `tokens` is the smaller function's token count and the fragments span the whole functions. Values outside `(0, 1]` print a warning and fall back to `1`.
+
+Scoring needs a syntax tree, and today only JavaScript/TypeScript have one (oxc). Each language plugs in through the `FunctionExtractor` trait in `cpd-tokenizer` (`functions.rs`): a grammar id, the formats it serves, and a walk that opens a function at every function-like node and records the node-type sequence inside it. Signatures carry their grammar id and are only compared within one grammar, so a tree-sitter-backed extractor for another language is a self-contained addition; the scoring, CLI, MCP tool and reporters need no change. Formats without an extractor are a silent no-op. The MCP `check_duplication` tool accepts the same `similarity` argument and returns the structurally similar project functions for each function in the snippet.
 
 ## Format Support
 

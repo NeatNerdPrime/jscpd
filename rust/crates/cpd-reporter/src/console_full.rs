@@ -198,6 +198,7 @@ mod tests {
             is_new: false,
             kind: Default::default(),
             similarity: None,
+            similarity_method: None,
         }
     }
 
@@ -223,6 +224,7 @@ mod tests {
             is_new: false,
             kind: Default::default(),
             similarity: None,
+            similarity_method: None,
         }
     }
 

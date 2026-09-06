@@ -225,6 +225,7 @@ mod tests {
             is_new: false,
             kind: Default::default(),
             similarity: None,
+            similarity_method: None,
         };
         let mut stats = empty_stats();
         stats.total.clones = 1;
