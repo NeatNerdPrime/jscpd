@@ -425,11 +425,15 @@ fn mark_annotations(tokens: &[Token]) -> Vec<bool> {
     let mut i = 0;
     let mut flags: Vec<bool> = Vec::new();
     while i < n {
+        // `@` followed by an identifier — but never by a keyword: Java's
+        // `@interface Name { … }` declares an annotation type rather than
+        // applying one, and the generic tokenizer reports `interface` as an
+        // identifier.
         let starts_annotation = tokens[i].value == "@"
             && tokens[i].kind != TokenKind::Ignore
             && tokens
                 .get(i + 1)
-                .is_some_and(|t| t.kind == TokenKind::Identifier);
+                .is_some_and(|t| t.kind == TokenKind::Identifier && !is_common_keyword(&t.value));
         if !starts_annotation {
             i += 1;
             continue;
@@ -832,6 +836,12 @@ mod tests {
             java_b.iter().map(|t| t.raw_hash).collect::<Vec<_>>(),
             "different annotations must leave different raw hashes"
         );
+
+        // `@interface` declares an annotation type; it is not an annotation use
+        let decl = "public @interface Marker {\n  String value() default \"\";\n}";
+        let stripped = det(decl, "java", &opts);
+        let untouched = det(decl, "java", &TokenizeOptions::new(Mode::Mild));
+        assert_eq!(hashes(&stripped), hashes(&untouched));
 
         // Ruby instance variables use `@` and must survive
         let ruby = det("@count = 1", "ruby", &opts);
