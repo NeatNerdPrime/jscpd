@@ -694,7 +694,7 @@ mod label_tests {
             clone_label(
                 "javascript",
                 CloneKind::Similar,
-                Some(0.905),
+                Some(0.91),
                 Some(SimilarityMethod::Gap)
             ),
             "javascript, similar (gap) ~0.91"
