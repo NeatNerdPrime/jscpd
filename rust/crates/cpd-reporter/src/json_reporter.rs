@@ -77,7 +77,7 @@ fn clone_to_dup(
         }
     }
 
-    json!({
+    let mut duplicate = json!({
         "format": clone.format,
         "lines": lines,
         "fragment": fragment,
@@ -86,7 +86,11 @@ fn clone_to_dup(
         "secondFile": second_file,
         "isNew": clone.is_new,
         "kind": clone.kind.as_str(),
-    })
+    });
+    if let Some(similarity) = clone.similarity_rounded() {
+        duplicate["similarity"] = json!(similarity);
+    }
+    duplicate
 }
 
 impl Reporter for JsonReporter {
@@ -327,6 +331,19 @@ mod tests {
         let parsed = parse_json_report(&content);
         assert_eq!(parsed["duplicates"][0]["isNew"], true);
         assert_eq!(parsed["duplicates"][1]["isNew"], false);
+    }
+
+    #[test]
+    fn json_duplicate_includes_similarity_only_for_similar_clones() {
+        let mut similar = make_clone("nonexistent.js", "also_nonexistent.js", 10);
+        similar.kind = cpd_core::models::CloneKind::Similar;
+        similar.similarity = Some(0.851_063_8);
+        let exact = make_clone("nonexistent.js", "also_nonexistent.js", 10);
+        let content = run_json_report(&[similar, exact], false);
+        let parsed = parse_json_report(&content);
+        assert_eq!(parsed["duplicates"][0]["kind"], "similar");
+        assert_eq!(parsed["duplicates"][0]["similarity"], 0.851);
+        assert!(parsed["duplicates"][1].get("similarity").is_none());
     }
 
     #[test]

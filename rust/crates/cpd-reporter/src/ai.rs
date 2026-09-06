@@ -1,7 +1,7 @@
 use crate::context::ReportContext;
 use crate::reporter::{Reporter, ReporterError, ReporterOptions};
 use crate::shared::Style;
-use cpd_core::models::CpdClone;
+use cpd_core::models::{CloneKind, CpdClone};
 use std::path::Path;
 
 pub struct AiReporter {
@@ -70,10 +70,11 @@ impl Reporter for AiReporter {
             let range_a = format_range(clone.fragment_a.start.line, clone.fragment_a.end.line);
             let range_b = format_range(clone.fragment_b.start.line, clone.fragment_b.end.line);
             let line = compress_clone_line(path_a, path_b, &range_a, &range_b);
-            if clone.kind.is_renamed() {
-                println!("{} (renamed)", line);
-            } else {
-                println!("{}", line);
+            match (clone.kind, clone.similarity) {
+                (CloneKind::Renamed, _) => println!("{} (renamed)", line),
+                (CloneKind::Similar, Some(s)) => println!("{} [~{:.2}]", line, s),
+                (CloneKind::Similar, None) => println!("{} [~]", line),
+                (CloneKind::Exact, _) => println!("{}", line),
             }
         }
 

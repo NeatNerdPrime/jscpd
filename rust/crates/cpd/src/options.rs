@@ -12,6 +12,7 @@ pub struct Options {
     pub min_tokens: usize,
     pub min_lines: usize,
     pub max_lines: Option<usize>,
+    pub max_gap_lines: usize,
     pub mode: Mode,
     pub formats: Vec<String>,
     pub ignore: Vec<String>,
@@ -107,6 +108,7 @@ impl Options {
             min_tokens: cli.min_tokens.or(config.min_tokens).unwrap_or(50),
             min_lines: cli.min_lines.or(config.min_lines).unwrap_or(5),
             max_lines: cli.max_lines.or(config.max_lines),
+            max_gap_lines: cli.max_gap_lines.or(config.max_gap_lines).unwrap_or(0),
             mode,
             formats: if cli.format.is_empty() {
                 config.format.clone().unwrap_or_default()

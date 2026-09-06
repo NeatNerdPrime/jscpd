@@ -509,6 +509,78 @@ fn ignore_identifiers_reports_renamed_and_exact_kinds() {
     let _ = std::fs::remove_dir_all(&out);
 }
 
+/// Near-miss detection (issue #999, stage 1): two exact halves around an
+/// inserted line stay separate by default and merge into one `similar` clone
+/// with `--max-gap-lines 1`.
+#[test]
+fn max_gap_lines_merges_near_miss_clones_only_when_set() {
+    let Some(bin) = maybe_bin() else {
+        return;
+    };
+    let dir = std::env::temp_dir().join(format!("cpd-type3-{}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("cpd-type3-report-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let head = "export function saveUser(user, db) {\n  const row = toRow(user);\n  row.updatedAt = Date.now();\n  row.version = (row.version || 0) + 1;\n";
+    let tail = "  db.put('users', row.id, row);\n  audit('save', row.id, row.version);\n  notify(user.email, 'profile-updated');\n  return row;\n}\n";
+    std::fs::write(dir.join("a.js"), format!("{head}{tail}")).unwrap();
+    std::fs::write(
+        dir.join("b.js"),
+        format!("{head}  if (!row.id) throw new Error('missing id');\n{tail}"),
+    )
+    .unwrap();
+    let scan = |extra: &[&str]| {
+        let output = Command::new(&bin)
+            .args([
+                "--min-tokens",
+                "15",
+                "--min-lines",
+                "2",
+                "--reporters",
+                "json,silent",
+            ])
+            .args(["--output", out.to_str().unwrap()])
+            .args(extra)
+            .arg(&dir)
+            .output()
+            .expect("failed to run cpd");
+        assert!(output.status.success(), "scan failed: {}", output.status);
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(out.join("jscpd-report.json")).unwrap())
+                .unwrap();
+        json["duplicates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| {
+                (
+                    d["kind"].as_str().unwrap().to_string(),
+                    d["similarity"].as_f64(),
+                    d["tokens"].as_u64().unwrap(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let default = scan(&[]);
+    assert_eq!(default.len(), 2, "two exact halves by default: {default:?}");
+    assert!(default.iter().all(|(k, s, _)| k == "exact" && s.is_none()));
+    assert_eq!(scan(&["--max-gap-lines", "0"]), default, "0 is the default");
+
+    let merged = scan(&["--max-gap-lines", "1"]);
+    assert_eq!(merged.len(), 1, "one similar clone: {merged:?}");
+    let (kind, similarity, tokens) = &merged[0];
+    assert_eq!(kind, "similar");
+    let similarity = similarity.expect("similar clones carry a similarity");
+    assert!(similarity > 0.7 && similarity < 1.0, "got {similarity}");
+    assert!(
+        *tokens > default[0].2 && *tokens < default[0].2 + default[1].2,
+        "matched tokens cover both halves minus the shared boundary token"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&out);
+}
+
 // --- snippet regression test (scan root != CWD) --------------------------------
 
 #[test]

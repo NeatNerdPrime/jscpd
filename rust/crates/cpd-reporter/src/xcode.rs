@@ -99,6 +99,7 @@ mod tests {
             token_count: 30,
             is_new: false,
             kind: Default::default(),
+            similarity: None,
         };
         let opts = ReporterOptions::new(PathBuf::from("/tmp"));
         let reporter = XcodeReporter::new(&opts);
