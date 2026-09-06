@@ -89,7 +89,8 @@ jscpd fixtures/type3-demo/similar-functions --similarity 0.7
 # Found 1 clones.
 ```
 
-Calibration: a copy that only renames things scores `1.00` (try
+`--similarity 1` is the default and means exact matches only: the pass does
+not run. Calibration: a copy that only renames things scores `1.00` (try
 `jscpd fixtures/type2-demo/identifiers --similarity 0.9`), a single inserted
 line scores about `0.9`, and two inserted statements plus renames, as here,
 score `0.75`. Functions must clear `--min-tokens` and `--min-lines` on their

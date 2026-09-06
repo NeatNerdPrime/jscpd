@@ -148,6 +148,9 @@ fn mcp_check_duplication_similarity() {
         format!(
             r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"check_duplication","arguments":{{"code":{code},"format":"javascript","similarity":2}}}}}}"#
         ),
+        format!(
+            r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"check_duplication","arguments":{{"code":{code},"format":"javascript","similarity":1}}}}}}"#
+        ),
     ];
     {
         let stdin = child.stdin.as_mut().unwrap();
@@ -163,7 +166,7 @@ fn mcp_check_duplication_similarity() {
         .filter(|l| !l.trim().is_empty())
         .map(|l| serde_json::from_str(l).expect("valid JSON per line"))
         .collect();
-    assert_eq!(responses.len(), 4, "stdout: {stdout}");
+    assert_eq!(responses.len(), 5, "stdout: {stdout}");
     let payload = |i: usize| -> serde_json::Value {
         serde_json::from_str(
             responses[i]["result"]["content"][0]["text"]
@@ -183,6 +186,11 @@ fn mcp_check_duplication_similarity() {
     assert!(sim > 0.7 && sim < 0.9, "got {sim}");
     let strict = payload(2);
     assert_eq!(strict["similarCount"], 0, "{strict}");
+    let exact_only = payload(4);
+    assert!(
+        exact_only.get("similarCount").is_none(),
+        "1 means exact matches only, no similarity section: {exact_only}"
+    );
     assert!(
         responses[3]["error"]["message"]
             .as_str()

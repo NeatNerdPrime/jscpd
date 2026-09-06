@@ -32,7 +32,7 @@ struct MergedConfig {
     min_lines: usize,
     max_lines: Option<usize>,
     max_gap_lines: usize,
-    similarity: Option<f32>,
+    similarity: f32,
     mode: String,
     formats: Vec<String>,
     ignore: Vec<String>,
@@ -200,14 +200,12 @@ fn main() {
     let mut opts = Options::from_cli_and_config(&cli, &config);
 
     // --similarity is a ratio in (0, 1]; anything else is a typo, not a request.
-    if let Some(s) = opts.similarity
-        && !(s > 0.0 && s <= 1.0)
-    {
+    if !(opts.similarity > 0.0 && opts.similarity <= 1.0) {
         eprintln!(
-            "Warning: --similarity: {} is outside (0, 1]; function similarity is disabled",
-            s
+            "Warning: --similarity: {} is outside (0, 1]; using 1 (exact matches only)",
+            opts.similarity
         );
-        opts.similarity = None;
+        opts.similarity = 1.0;
     }
 
     // Warn about --ignore-pattern regexes that fail to compile: the tokenizer

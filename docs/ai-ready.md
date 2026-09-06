@@ -102,7 +102,7 @@ Client configuration (Claude Desktop, Claude Code, Cursor, APM, ...):
 
 The server implements MCP protocol revision `2025-06-18` (also accepting `2025-03-26` and `2024-11-05` clients) and exposes four tools:
 
-- `check_duplication(code, format, limit?, similarity?)` — check a snippet against the scanned project; with `similarity` (a ratio in `(0, 1]`, JavaScript/TypeScript only) the response also lists project functions structurally similar to each function in the snippet, best first, under `similar`; `format` accepts format names (`javascript`) or file extensions (`js`)
+- `check_duplication(code, format, limit?, similarity?)` — check a snippet against the scanned project; with `similarity` (a ratio in `(0, 1]`, JavaScript/TypeScript only; `1` means exact matches only, and the server's `--similarity` is the default) the response also lists project functions structurally similar to each function in the snippet, best first, under `similar`; `format` accepts format names (`javascript`) or file extensions (`js`)
 - `get_file_clones(path, limit?)` — clones involving one file, for file-scoped refactoring; `path` is scan-root-relative (as shown in results) or absolute
 - `get_statistics()` — totals and per-format statistics from the last scan
 - `check_current_directory(limit?)` — re-scan the configured paths and return updated counts plus the clone list

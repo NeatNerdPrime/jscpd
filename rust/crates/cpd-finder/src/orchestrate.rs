@@ -22,8 +22,10 @@ pub struct RunConfig {
     /// lines into a `similar` clone (issue #999). 0 = off.
     pub max_gap_lines: usize,
     /// Report JS/TS function pairs whose AST similarity reaches this value
-    /// as `similar` clones (issue #999, stage 2). `None` = off.
-    pub similarity: Option<f32>,
+    /// as `similar` clones (issue #999, stage 2). `1.0` (the default) means
+    /// exact matches only: the pass does not run. See
+    /// [`RunConfig::similarity_threshold`].
+    pub similarity: f32,
     pub mode: Mode,
     pub formats: Vec<String>,
     pub ignore: Vec<String>,
@@ -58,7 +60,7 @@ impl Default for RunConfig {
             min_lines: 5,
             max_lines: None,
             max_gap_lines: 0,
-            similarity: None,
+            similarity: 1.0,
             mode: Mode::Mild,
             formats: vec![],
             ignore: vec![],
@@ -79,6 +81,16 @@ impl Default for RunConfig {
             pattern: None,
             cross_formats: vec![],
         }
+    }
+}
+
+impl RunConfig {
+    /// The function-similarity threshold when the pass is enabled: values
+    /// strictly between 0 and 1. `1.0` (exact only) and out-of-range values
+    /// yield `None`, so a run without `--similarity` never touches the
+    /// function extractor or the index.
+    pub fn similarity_threshold(&self) -> Option<f32> {
+        (self.similarity > 0.0 && self.similarity < 1.0).then_some(self.similarity)
     }
 }
 
@@ -187,7 +199,7 @@ pub fn run(config: &RunConfig) -> Result<RunResult, FinderError> {
     let mut clones = merge_gapped_clones(clones, config.max_gap_lines);
 
     // 4c. Function-level similarity — only when --similarity is set.
-    if let Some(threshold) = config.similarity {
+    if let Some(threshold) = config.similarity_threshold() {
         let similar = find_similar_functions(
             function_sources,
             threshold,
@@ -251,7 +263,7 @@ pub fn prepare_scan_in(pool: &rayon::ThreadPool, config: &RunConfig) -> Prepared
     let ignore_identifiers = config.ignore_identifiers;
     let ignore_literals = config.ignore_literals;
     let ignore_annotations = config.ignore_annotations;
-    let want_functions = config.similarity.is_some();
+    let want_functions = config.similarity_threshold().is_some();
 
     // Pre-compile code-level ignore regex patterns once for all threads.
     // Invalid patterns are silently skipped.

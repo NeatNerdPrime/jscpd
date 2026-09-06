@@ -217,7 +217,7 @@ pub struct Cli {
     #[arg(long, value_name = "N")]
     pub max_gap_lines: Option<usize>,
 
-    /// Report JavaScript/TypeScript function pairs whose AST similarity reaches RATIO (a number in (0, 1], e.g. 0.85; omit to disable) as near-miss clones (Type-3, "similar")
+    /// Report JavaScript/TypeScript function pairs whose AST similarity reaches RATIO as near-miss clones (Type-3, "similar"). A number in (0, 1]; the default 1 means exact matches only, e.g. 0.85 enables it
     #[arg(long, value_name = "RATIO")]
     pub similarity: Option<f32>,
 
@@ -1450,15 +1450,15 @@ mod tests {
         let cli = Cli::parse_from(["cpd", "--similarity", "0.85", "."]);
         assert_eq!(cli.similarity, Some(0.85));
         let opts = crate::options::Options::from_cli_and_config(&cli, &ConfigFile::default());
-        assert_eq!(opts.similarity, Some(0.85));
+        assert_eq!(opts.similarity, 0.85);
 
         let cli = Cli::parse_from(["cpd", "."]);
         let opts = crate::options::Options::from_cli_and_config(&cli, &ConfigFile::default());
-        assert_eq!(opts.similarity, None, "off by default");
+        assert_eq!(opts.similarity, 1.0, "1 = exact matches only, the default");
 
         let v: ConfigFile = serde_json::from_str(r#"{"similarity": 0.9}"#).unwrap();
         let opts = crate::options::Options::from_cli_and_config(&cli, &v);
-        assert_eq!(opts.similarity, Some(0.9));
+        assert_eq!(opts.similarity, 0.9);
     }
 
     #[test]

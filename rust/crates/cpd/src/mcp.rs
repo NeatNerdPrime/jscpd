@@ -249,10 +249,12 @@ impl McpServer {
                         "check_duplication requires string arguments 'code' and 'format'",
                     );
                 };
+                // Absent: the server's --similarity (off at the default 1).
+                // 1 means exact matches only, so it yields no similarity section.
                 let similarity = match args.get("similarity") {
-                    None | Some(Value::Null) => None,
+                    None | Some(Value::Null) => self.config.similarity_threshold(),
                     Some(v) => match v.as_f64() {
-                        Some(s) if s > 0.0 && s <= 1.0 => Some(s as f32),
+                        Some(s) if s > 0.0 && s <= 1.0 => (s < 1.0).then_some(s as f32),
                         _ => {
                             return err(
                                 id,
@@ -631,7 +633,7 @@ fn tool_definitions() -> Value {
                         "type": "number",
                         "exclusiveMinimum": 0,
                         "maximum": 1,
-                        "description": "Also find project functions whose AST similarity to the snippet's functions reaches this ratio (e.g. 0.85); JavaScript/TypeScript only"
+                        "description": "Also find project functions whose AST similarity to the snippet's functions reaches this ratio (e.g. 0.85); 1 means exact matches only (no similarity section); defaults to the server's --similarity; JavaScript/TypeScript only"
                     }
                 },
                 "required": ["code", "format"]

@@ -84,7 +84,7 @@ cpd [OPTIONS] [PATH]...
 | `--ignore-literals` | | Treat all string literals as equal and all numeric literals as equal | off |
 | `--ignore-annotations` | | Skip annotations and decorators (`@Name`, `@Name(...)`) before detection | off |
 | `--max-gap-lines` | | Merge clones of one file pair separated by at most N unmatched lines in both files into one near-miss clone reported as `similar`. See [Type-3 clones](#type-3-clones-near-miss-merging-with---max-gap-lines) | 0 (off) |
-| `--similarity` | | Report JavaScript/TypeScript function pairs whose syntax-tree similarity reaches RATIO, a number in `(0, 1]`, as `similar` clones; omit to disable. See [function similarity](#function-level-similarity-with---similarity) | off |
+| `--similarity` | | Report JavaScript/TypeScript function pairs whose syntax-tree similarity reaches RATIO, a number in `(0, 1]`, as `similar` clones; `1` means exact matches only. See [function similarity](#function-level-similarity-with---similarity) | 1 (off) |
 | `--formats-exts` | | Custom format-to-extension mapping (e.g. `javascript:es,es6;dart:dt`) | — |
 | `--formats-names` | | Custom format-to-filename mapping | — |
 | `--cross-formats` | | Detect clones across formats: `;`-separated groups of `,`-separated formats (e.g. `javascript,typescript`). Preset `js-ts` = `javascript,jsx,typescript,tsx` | — |
@@ -337,14 +337,14 @@ Reporting: the console prints `Clone found (javascript, similar ~0.85)`, the `ai
 
 ### Function-level similarity with `--similarity`
 
-Edits spread through a function rather than concentrated in one gap still escape a token window. `--similarity RATIO` (config key `similarity`, a number in `(0, 1]`) compares whole functions instead: every function declaration, function expression, method and arrow function in a JavaScript, TypeScript, JSX or TSX file is summarized by the bag of 4-grams over the pre-order sequence of its syntax-tree node *types*, and two functions are reported as one `similar` clone when the weighted Jaccard index of their bags reaches `RATIO`. Names and literal values are not part of the summary, so a renamed copy scores `1.0`; one inserted line scores about `0.9`; two inserted statements plus renames score about `0.75`. Candidates come from a MinHash index, so the search stays close to linear in the number of functions.
+Edits spread through a function rather than concentrated in one gap still escape a token window. `--similarity RATIO` (config key `similarity`, a number in `(0, 1]`; the default `1` means exact matches only, so the pass never runs until you set a lower value) compares whole functions instead: every function declaration, function expression, method and arrow function in a JavaScript, TypeScript, JSX or TSX file is summarized by the bag of 4-grams over the pre-order sequence of its syntax-tree node *types*, and two functions are reported as one `similar` clone when the weighted Jaccard index of their bags reaches `RATIO`. Names and literal values are not part of the summary, so a renamed copy scores `1.0`; one inserted line scores about `0.9`; two inserted statements plus renames score about `0.75`. Candidates come from a MinHash index, so the search stays close to linear in the number of functions.
 
 ```bash
 jscpd --similarity 0.85 src/        # near-identical structure: renames, literal changes, a one-line edit
 jscpd --similarity 0.7 src/         # looser: a couple of added or removed statements
 ```
 
-Functions must clear `--min-tokens` and `--min-lines` on their own, nested functions are never paired with their parent, and a pair that an exact, renamed or merged clone already covers is not reported again. Reporting is the same as for merged clones (`kind: similar`, `similarity`, `jscpd/near-miss-code` in SARIF); `tokens` is the smaller function's token count and the fragments span the whole functions. Values outside `(0, 1]` print a warning and disable the option.
+Functions must clear `--min-tokens` and `--min-lines` on their own, nested functions are never paired with their parent, and a pair that an exact, renamed or merged clone already covers is not reported again. Reporting is the same as for merged clones (`kind: similar`, `similarity`, `jscpd/near-miss-code` in SARIF); `tokens` is the smaller function's token count and the fragments span the whole functions. Values outside `(0, 1]` print a warning and fall back to `1`.
 
 Scoring needs a syntax tree, and today only JavaScript/TypeScript have one (oxc). Each language plugs in through the `FunctionExtractor` trait in `cpd-tokenizer` (`functions.rs`): a grammar id, the formats it serves, and a walk that opens a function at every function-like node and records the node-type sequence inside it. Signatures carry their grammar id and are only compared within one grammar, so a tree-sitter-backed extractor for another language is a self-contained addition; the scoring, CLI, MCP tool and reporters need no change. Formats without an extractor are a silent no-op. The MCP `check_duplication` tool accepts the same `similarity` argument and returns the structurally similar project functions for each function in the snippet.
 

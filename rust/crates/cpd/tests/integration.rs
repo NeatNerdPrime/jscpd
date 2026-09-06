@@ -647,6 +647,12 @@ fn similarity_reports_structurally_similar_functions_only_when_set() {
     assert_eq!(loose[0].0, "similar");
     let sim = loose[0].1.expect("similarity present");
     assert!(sim > 0.7 && sim < 0.9, "got {sim}");
+    let (exact_only, stderr) = scan(&["--similarity", "1"]);
+    assert!(
+        exact_only.is_empty(),
+        "1 is the default and means exact matches only"
+    );
+    assert!(!stderr.contains("Warning"), "1 is valid: {stderr}");
     let (none, stderr) = scan(&["--similarity", "1.5"]);
     assert!(none.is_empty());
     assert!(stderr.contains("Warning: --similarity"), "got: {stderr}");
