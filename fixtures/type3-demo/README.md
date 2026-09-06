@@ -16,6 +16,10 @@ Commands run from the repository root at default thresholds; the lines after
 | `inserted-line/` | 1 line | 2 exact clones | 1 similar clone | 1 similar clone |
 | `wide-gap/` | 2 lines | 2 exact clones | 2 exact clones | 1 similar clone |
 
+`similar-functions/` demonstrates the second mechanism, `--similarity RATIO`,
+which compares whole JavaScript/TypeScript functions by syntax-tree structure
+instead of joining token runs (see below).
+
 ## `inserted-line/` — one inserted guard
 
 `save-account.js` is `save-user.js` with one `if (...) throw` line added in
@@ -59,6 +63,39 @@ jscpd fixtures/type3-demo/wide-gap --max-gap-lines 2
 # Found 1 clones.
 ```
 
+## `similar-functions/` — edits spread through a function
+
+`credit-note.js` is `invoice.js` after a realistic second use: every name
+changed, one `continue` guard and one logging call inserted. No two token
+runs are long enough to clear the default thresholds, so neither a default
+scan nor `--max-gap-lines` reports anything. `--similarity RATIO` compares
+functions by the bag of 4-grams over their syntax-tree node types (names and
+values do not take part), so the pair scores by how much structure survived.
+
+```bash
+jscpd fixtures/type3-demo/similar-functions
+# Found 0 clones.
+
+jscpd fixtures/type3-demo/similar-functions --max-gap-lines 3
+# Found 0 clones.
+
+jscpd fixtures/type3-demo/similar-functions --similarity 0.85
+# Found 0 clones.
+
+jscpd fixtures/type3-demo/similar-functions --similarity 0.7
+# Clone found (javascript, similar ~0.75)
+#  - credit-note.js [1:8 - 19:2] (19 lines, 126 tokens)
+#    invoice.js [1:8 - 17:2]
+# Found 1 clones.
+```
+
+Calibration: a copy that only renames things scores `1.00` (try
+`jscpd fixtures/type2-demo/identifiers --similarity 0.9`), a single inserted
+line scores about `0.9`, and two inserted statements plus renames, as here,
+score `0.75`. Functions must clear `--min-tokens` and `--min-lines` on their
+own, and a pair already reported as an exact or merged clone is not reported
+again.
+
 ## Whole directory
 
 ```bash
@@ -68,8 +105,14 @@ jscpd fixtures/type3-demo
 jscpd fixtures/type3-demo --max-gap-lines 2
 # Found 2 clones.
 
-jscpd fixtures/type3-demo --max-gap-lines 2 --reporters json,silent --output report
-# each entry in "duplicates" has "kind": "similar" and "similarity": 0.91…
+jscpd fixtures/type3-demo --similarity 0.7
+# Found 7 clones.   (the four exact halves, plus one similar function pair per directory)
+
+jscpd fixtures/type3-demo --max-gap-lines 2 --similarity 0.7
+# Found 3 clones.   (merged clones cover the whole functions, so only similar-functions/ adds one)
+
+jscpd fixtures/type3-demo --max-gap-lines 2 --similarity 0.7 --reporters json,silent --output report
+# every entry in "duplicates" has "kind": "similar" and a "similarity" value
 ```
 
 Merging only joins clones the exact run already reported, so it never adds a

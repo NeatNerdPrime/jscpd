@@ -127,6 +127,7 @@ pub fn detect_with_options(
                         hashes,
                         spans,
                         raw_hashes: Vec::new(),
+                        functions: Vec::new(),
                     }
                 })
                 .collect();
@@ -174,6 +175,9 @@ pub struct PreparedSource {
     /// normalization option rewrote at least one token of this source; then
     /// it is used to classify clones as exact or renamed (issue #998).
     pub raw_hashes: Vec<u64>,
+    /// Function signatures for similarity scoring (issue #999). Empty unless
+    /// `--similarity` is set and the format is JavaScript/TypeScript.
+    pub functions: Vec<crate::similarity::FunctionSig>,
 }
 
 impl PreparedSource {
@@ -201,6 +205,7 @@ impl PreparedSource {
             hashes,
             spans,
             raw_hashes,
+            functions: Vec::new(),
         }
     }
 }
@@ -1335,6 +1340,7 @@ mod tests {
                 hashes,
                 spans,
                 raw_hashes: Vec::new(),
+                functions: Vec::new(),
             }
         };
         let group = vec![

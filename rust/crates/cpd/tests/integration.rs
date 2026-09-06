@@ -581,6 +581,79 @@ fn max_gap_lines_merges_near_miss_clones_only_when_set() {
     let _ = std::fs::remove_dir_all(&out);
 }
 
+/// Function-level similarity (issue #999, stage 2): a pair with renames and
+/// two inserted statements is invisible to exact detection and to gap
+/// merging, and appears as one `similar` clone only with `--similarity`.
+#[test]
+fn similarity_reports_structurally_similar_functions_only_when_set() {
+    let Some(bin) = maybe_bin() else {
+        return;
+    };
+    let dir = std::env::temp_dir().join(format!("cpd-similarity-{}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("cpd-similarity-report-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("invoice.js"),
+        "export function buildInvoice(order, customer, taxRate) {\n  const lines = [];\n  for (const item of order.items) {\n    const net = item.price * item.quantity;\n    lines.push({ sku: item.sku, quantity: item.quantity, net });\n  }\n  const subtotal = lines.reduce((sum, line) => sum + line.net, 0);\n  const tax = Math.round(subtotal * taxRate * 100) / 100;\n  return { number: nextInvoiceNumber(), customer: customer.id, lines, subtotal, tax, total: subtotal + tax };\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("credit-note.js"),
+        "export function buildCreditNote(refund, account, vatRate) {\n  const entries = [];\n  for (const item of refund.items) {\n    if (!item.refundable) continue;\n    const net = item.price * item.quantity;\n    entries.push({ sku: item.sku, quantity: item.quantity, net });\n  }\n  const subtotal = entries.reduce((sum, entry) => sum + entry.net, 0);\n  const vat = Math.round(subtotal * vatRate * 100) / 100;\n  logger.info('credit note', { account: account.id, subtotal });\n  return { number: nextCreditNoteNumber(), account: account.id, entries, subtotal, vat, total: subtotal + vat };\n}\n",
+    )
+    .unwrap();
+    let scan = |extra: &[&str]| {
+        let output = Command::new(&bin)
+            .args([
+                "--reporters",
+                "json,silent",
+                "--output",
+                out.to_str().unwrap(),
+            ])
+            .args(extra)
+            .arg(&dir)
+            .output()
+            .expect("failed to run cpd");
+        assert!(output.status.success(), "scan failed: {}", output.status);
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(out.join("jscpd-report.json")).unwrap())
+                .unwrap();
+        let dups = json["duplicates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| {
+                (
+                    d["kind"].as_str().unwrap().to_string(),
+                    d["similarity"].as_f64(),
+                )
+            })
+            .collect::<Vec<_>>();
+        (dups, String::from_utf8_lossy(&output.stderr).to_string())
+    };
+
+    assert!(scan(&[]).0.is_empty(), "no exact clone");
+    assert!(
+        scan(&["--max-gap-lines", "3"]).0.is_empty(),
+        "no run long enough to merge"
+    );
+    assert!(
+        scan(&["--similarity", "0.85"]).0.is_empty(),
+        "below a strict threshold"
+    );
+    let (loose, _) = scan(&["--similarity", "0.7"]);
+    assert_eq!(loose.len(), 1, "{loose:?}");
+    assert_eq!(loose[0].0, "similar");
+    let sim = loose[0].1.expect("similarity present");
+    assert!(sim > 0.7 && sim < 0.9, "got {sim}");
+    let (none, stderr) = scan(&["--similarity", "1.5"]);
+    assert!(none.is_empty());
+    assert!(stderr.contains("Warning: --similarity"), "got: {stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&out);
+}
+
 // --- snippet regression test (scan root != CWD) --------------------------------
 
 #[test]

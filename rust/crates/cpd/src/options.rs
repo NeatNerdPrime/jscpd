@@ -13,6 +13,7 @@ pub struct Options {
     pub min_lines: usize,
     pub max_lines: Option<usize>,
     pub max_gap_lines: usize,
+    pub similarity: Option<f32>,
     pub mode: Mode,
     pub formats: Vec<String>,
     pub ignore: Vec<String>,
@@ -109,6 +110,7 @@ impl Options {
             min_lines: cli.min_lines.or(config.min_lines).unwrap_or(5),
             max_lines: cli.max_lines.or(config.max_lines),
             max_gap_lines: cli.max_gap_lines.or(config.max_gap_lines).unwrap_or(0),
+            similarity: cli.similarity.or(config.similarity),
             mode,
             formats: if cli.format.is_empty() {
                 config.format.clone().unwrap_or_default()

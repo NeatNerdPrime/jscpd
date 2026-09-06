@@ -31,6 +31,8 @@ struct MergedConfig {
     min_tokens: usize,
     min_lines: usize,
     max_lines: Option<usize>,
+    max_gap_lines: usize,
+    similarity: Option<f32>,
     mode: String,
     formats: Vec<String>,
     ignore: Vec<String>,
@@ -78,6 +80,8 @@ impl MergedConfig {
             min_tokens: opts.min_tokens,
             min_lines: opts.min_lines,
             max_lines: opts.max_lines,
+            max_gap_lines: opts.max_gap_lines,
+            similarity: opts.similarity,
             mode: format!("{:?}", opts.mode).to_lowercase(),
             formats: opts.formats.clone(),
             ignore: opts.ignore.clone(),
@@ -193,7 +197,18 @@ fn main() {
     }
 
     let config = config_result.config;
-    let opts = Options::from_cli_and_config(&cli, &config);
+    let mut opts = Options::from_cli_and_config(&cli, &config);
+
+    // --similarity is a ratio in (0, 1]; anything else is a typo, not a request.
+    if let Some(s) = opts.similarity
+        && !(s > 0.0 && s <= 1.0)
+    {
+        eprintln!(
+            "Warning: --similarity: {} is outside (0, 1]; function similarity is disabled",
+            s
+        );
+        opts.similarity = None;
+    }
 
     // Warn about --ignore-pattern regexes that fail to compile: the tokenizer
     // skips them, so a typo would otherwise disable the pattern with no feedback.
@@ -291,6 +306,7 @@ fn main() {
         min_lines: opts.min_lines,
         max_lines: opts.max_lines,
         max_gap_lines: opts.max_gap_lines,
+        similarity: opts.similarity,
         mode: opts.mode,
         formats: opts.formats.clone(),
         ignore: opts.ignore.clone(),

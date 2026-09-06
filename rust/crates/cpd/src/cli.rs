@@ -217,6 +217,10 @@ pub struct Cli {
     #[arg(long, value_name = "N")]
     pub max_gap_lines: Option<usize>,
 
+    /// Report JavaScript/TypeScript function pairs whose AST similarity reaches RATIO (0-1, e.g. 0.85) as near-miss clones (Type-3, "similar")
+    #[arg(long, value_name = "RATIO")]
+    pub similarity: Option<f32>,
+
     /// Detection mode: mild, weak, strict
     #[arg(long, short = 'm')]
     pub mode: Option<String>,
@@ -415,6 +419,7 @@ pub struct ConfigFile {
     pub max_lines: Option<usize>,
     #[serde(alias = "max-gap-lines")]
     pub max_gap_lines: Option<usize>,
+    pub similarity: Option<f32>,
     pub mode: Option<String>,
     #[serde(alias = "formats")]
     pub format: Option<Vec<String>>,
@@ -630,6 +635,7 @@ pub(crate) static KNOWN_CONFIG_FIELDS: &[&str] = &[
     "minLines",
     "maxLines",
     "maxGapLines",
+    "similarity",
     "mode",
     "format",
     "formats",
@@ -1437,6 +1443,22 @@ mod tests {
         assert_eq!(opts.max_gap_lines, 3);
         let v: ConfigFile = serde_json::from_str(r#"{"max-gap-lines": 1}"#).unwrap();
         assert_eq!(v.max_gap_lines, Some(1));
+    }
+
+    #[test]
+    fn similarity_flag_and_config() {
+        let cli = Cli::parse_from(["cpd", "--similarity", "0.85", "."]);
+        assert_eq!(cli.similarity, Some(0.85));
+        let opts = crate::options::Options::from_cli_and_config(&cli, &ConfigFile::default());
+        assert_eq!(opts.similarity, Some(0.85));
+
+        let cli = Cli::parse_from(["cpd", "."]);
+        let opts = crate::options::Options::from_cli_and_config(&cli, &ConfigFile::default());
+        assert_eq!(opts.similarity, None, "off by default");
+
+        let v: ConfigFile = serde_json::from_str(r#"{"similarity": 0.9}"#).unwrap();
+        let opts = crate::options::Options::from_cli_and_config(&cli, &v);
+        assert_eq!(opts.similarity, Some(0.9));
     }
 
     #[test]

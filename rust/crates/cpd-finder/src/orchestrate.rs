@@ -4,6 +4,8 @@ use crate::statistics;
 use crate::walker::{WalkConfig, walk};
 use cpd_core::detect::{PathFilters, PreparedSource, detect_prepared, merge_gapped_clones};
 use cpd_core::models::{CpdClone, SourceFile, Statistics};
+use cpd_core::similarity::{FunctionSig, collect_function_sources, find_similar_functions};
+use cpd_tokenizer::functions::{extract_functions, supports_functions};
 use cpd_tokenizer::tokenizer::{
     Mode, TokenizeOptions, code_ignore_ranges, tokenize_to_detection, tokenize_to_detection_maps,
 };
@@ -19,6 +21,9 @@ pub struct RunConfig {
     /// Merge clones of one file pair separated by at most this many unmatched
     /// lines into a `similar` clone (issue #999). 0 = off.
     pub max_gap_lines: usize,
+    /// Report JS/TS function pairs whose AST similarity reaches this value
+    /// as `similar` clones (issue #999, stage 2). `None` = off.
+    pub similarity: Option<f32>,
     pub mode: Mode,
     pub formats: Vec<String>,
     pub ignore: Vec<String>,
@@ -53,6 +58,7 @@ impl Default for RunConfig {
             min_lines: 5,
             max_lines: None,
             max_gap_lines: 0,
+            similarity: None,
             mode: Mode::Mild,
             formats: vec![],
             ignore: vec![],
@@ -144,6 +150,10 @@ pub fn run(config: &RunConfig) -> Result<RunResult, FinderError> {
         prepared: prepared_sources,
     } = prepare_scan_in(&pool, config);
 
+    // Function signatures must be taken before the pools consume the
+    // prepared sources; empty unless --similarity is set.
+    let function_sources = collect_function_sources(&prepared_sources);
+
     // 3. Group prepared sources into detection pools (deterministic order).
     let format_groups = build_pools(prepared_sources, &config.cross_formats);
 
@@ -174,7 +184,19 @@ pub fn run(config: &RunConfig) -> Result<RunResult, FinderError> {
     });
 
     // 4b. Near-miss merging — a no-op unless --max-gap-lines is set.
-    let clones = merge_gapped_clones(clones, config.max_gap_lines);
+    let mut clones = merge_gapped_clones(clones, config.max_gap_lines);
+
+    // 4c. Function-level similarity — only when --similarity is set.
+    if let Some(threshold) = config.similarity {
+        let similar = find_similar_functions(
+            &function_sources,
+            threshold,
+            config.min_tokens,
+            config.min_lines,
+            &clones,
+        );
+        clones.extend(similar);
+    }
 
     // 5. Compute statistics.
     let statistics = statistics::compute(&source_files, &clones);
@@ -229,6 +251,7 @@ pub fn prepare_scan_in(pool: &rayon::ThreadPool, config: &RunConfig) -> Prepared
     let ignore_identifiers = config.ignore_identifiers;
     let ignore_literals = config.ignore_literals;
     let ignore_annotations = config.ignore_annotations;
+    let want_functions = config.similarity.is_some();
 
     // Pre-compile code-level ignore regex patterns once for all threads.
     // Invalid patterns are silently skipped.
@@ -387,8 +410,22 @@ pub fn prepare_scan_in(pool: &rayon::ThreadPool, config: &RunConfig) -> Prepared
                         return None;
                     }
 
-                    let prepared =
+                    let mut prepared =
                         PreparedSource::from_detection_tokens(id, file.format, &det_tokens);
+                    if want_functions && supports_functions(&prepared.format) {
+                        prepared.functions = extract_functions(content, &prepared.format)
+                            .into_iter()
+                            .filter_map(|f| {
+                                FunctionSig::build(
+                                    f.name,
+                                    f.start,
+                                    f.end,
+                                    &f.kinds,
+                                    &prepared.spans,
+                                )
+                            })
+                            .collect();
+                    }
 
                     Some((vec![source_file], vec![prepared]))
                 }
@@ -474,6 +511,7 @@ mod tests {
             hashes: vec![],
             spans: vec![],
             raw_hashes: Vec::new(),
+            functions: Vec::new(),
         }
     }
 
