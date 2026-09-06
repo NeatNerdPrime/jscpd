@@ -108,7 +108,7 @@ inputs:
   max-gap-lines:
     description: "Merge clones separated by at most N unmatched lines into one near-miss clone (Type-3); 0 disables"
     required: false
-    default: ""
+    default: "0"
   follow-symlinks:
     description: "Follow symbolic links"
     required: false
@@ -413,7 +413,7 @@ runs:
         if [ "$INPUT_IGNORE_ANNOTATIONS" = "true" ]; then
           ARGS+=("--ignore-annotations")
         fi
-        if [ -n "$INPUT_MAX_GAP_LINES" ]; then
+        if [ -n "$INPUT_MAX_GAP_LINES" ] && [ "$INPUT_MAX_GAP_LINES" != "0" ]; then
           ARGS+=("--max-gap-lines" "$INPUT_MAX_GAP_LINES")
         fi
         if [ "$INPUT_FOLLOW_SYMLINKS" = "true" ]; then

@@ -66,7 +66,7 @@ The workflow fails if more than 5% of the code is duplicated.
 | `ignore-identifiers` | Treat all identifiers as equal (Type-2 clones) | `false` |
 | `ignore-literals` | Treat all string and numeric literals as equal | `false` |
 | `ignore-annotations` | Skip annotations and decorators (`@Name`, `@Name(...)`) | `false` |
-| `max-gap-lines` | Merge clones separated by at most N unmatched lines into one near-miss clone (Type-3) | — |
+| `max-gap-lines` | Merge clones separated by at most N unmatched lines into one near-miss clone (Type-3); `0` disables | `0` |
 | `follow-symlinks` | Follow symbolic links | `false` |
 | `no-gitignore` | Don't respect .gitignore files | `false` |
 | `absolute` | Use absolute paths in reports | `false` |
