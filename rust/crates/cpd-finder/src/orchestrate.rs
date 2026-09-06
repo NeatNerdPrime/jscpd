@@ -417,6 +417,7 @@ pub fn prepare_scan_in(pool: &rayon::ThreadPool, config: &RunConfig) -> Prepared
                             .into_iter()
                             .filter_map(|f| {
                                 FunctionSig::build(
+                                    f.grammar,
                                     f.name,
                                     f.start,
                                     f.end,

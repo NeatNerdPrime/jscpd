@@ -10,6 +10,12 @@
 //! Node *types* only: identifier names and literal values do not take part,
 //! so a renamed copy scores 1.0 and an edited copy scores by how much of
 //! its structure survived. Positions always reference the original source.
+//!
+//! The scoring is grammar-agnostic: node-type ids are opaque `u16`s from
+//! whichever extractor produced them (`cpd_tokenizer::functions`), and a
+//! signature records its `grammar` so functions are only compared within
+//! one grammar. Adding a language means adding an extractor, not touching
+//! this module.
 
 use crate::detect::PreparedSource;
 use crate::models::{CloneKind, CpdClone, Fragment, Location};
@@ -30,6 +36,9 @@ const MAX_BUCKET: usize = 256;
 /// Structural summary of one function, method or arrow function.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSig {
+    /// Grammar that produced the node-type sequence; pairs are only formed
+    /// within one grammar.
+    pub grammar: &'static str,
     /// Declared or inferred name (`<arrow>` / `<anonymous>` when none).
     pub name: String,
     pub start: Location,
@@ -48,6 +57,7 @@ impl FunctionSig {
     /// token spans. Returns `None` when no detection token lies inside the
     /// function's byte range (comment-only or type-only bodies).
     pub fn build(
+        grammar: &'static str,
         name: String,
         start: Location,
         end: Location,
@@ -65,6 +75,7 @@ impl FunctionSig {
         }
         let minhash = minhash(&shingles);
         Some(Self {
+            grammar,
             name,
             start,
             end,
@@ -326,6 +337,9 @@ fn band_keys(minhash: &[u64; MINHASH_SIZE]) -> impl Iterator<Item = (u8, u64)> +
 /// Exact score for a candidate pair, `None` below `threshold`. The size
 /// ratio bounds the Jaccard index from above, so it is checked first.
 fn score(a: &FunctionSig, b: &FunctionSig, threshold: f32) -> Option<f32> {
+    if a.grammar != b.grammar {
+        return None;
+    }
     let (small, large) = if a.shingles.len() <= b.shingles.len() {
         (a.shingles.len(), b.shingles.len())
     } else {
@@ -428,6 +442,7 @@ mod tests {
     fn sig(name: &str, kinds: &[u16], first_tok: u32, last_tok: u32) -> FunctionSig {
         let spans = spans(last_tok + 1);
         FunctionSig::build(
+            "test",
             name.into(),
             loc(first_tok + 1, first_tok * 10),
             loc(last_tok + 1, last_tok * 10 + 5),
@@ -472,8 +487,15 @@ mod tests {
         assert_eq!(s.line_span(), 5);
         let spans = spans(4);
         assert!(
-            FunctionSig::build("g".into(), loc(9, 900), loc(9, 950), &[1, 2, 3, 4], &spans)
-                .is_none()
+            FunctionSig::build(
+                "test",
+                "g".into(),
+                loc(9, 900),
+                loc(9, 950),
+                &[1, 2, 3, 4],
+                &spans
+            )
+            .is_none()
         );
     }
 
@@ -559,6 +581,26 @@ mod tests {
             find_similar_functions(two.clone(), 0.5, 10, 3, &[exact]).is_empty(),
             "already reported"
         );
+    }
+
+    #[test]
+    fn functions_of_different_grammars_are_never_paired() {
+        let base = kinds(1, 80);
+        let mut foreign = sig("copy", &base, 0, 60);
+        foreign.grammar = "tree-sitter-python";
+        let sources = vec![
+            FunctionSource {
+                id: "a.js".into(),
+                format: "javascript".into(),
+                functions: vec![sig("orig", &base, 0, 60)],
+            },
+            FunctionSource {
+                id: "b.py".into(),
+                format: "python".into(),
+                functions: vec![foreign],
+            },
+        ];
+        assert!(find_similar_functions(sources, 0.5, 10, 3, &[]).is_empty());
     }
 
     #[test]

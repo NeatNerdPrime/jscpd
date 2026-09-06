@@ -1,10 +1,24 @@
 //! Function extraction for similarity scoring (issue #999, stage 2).
 //!
-//! Walks the oxc AST of a JavaScript/TypeScript source and records, for
-//! every function declaration, function expression, method and arrow
-//! function, its name, span and the pre-order sequence of AST node types
-//! inside it. Node *types* only: identifiers and literal values are not
-//! part of the sequence, so the summary describes structure.
+//! A [`FunctionExtractor`] turns a source file into its functions, each with
+//! a name, a span and the pre-order sequence of syntax-tree node types
+//! inside it. Node *types* only: identifiers and literal values are not part
+//! of the sequence, so the summary describes structure. The scoring in
+//! `cpd_core::similarity` is grammar-agnostic; it only ever compares two
+//! functions that carry the same [`FunctionExtractor::grammar`] id.
+//!
+//! # Adding a language
+//!
+//! 1. Implement [`FunctionExtractor`]: pick a stable `grammar` id (for a
+//!    tree-sitter grammar, its name), list the jscpd `formats` it serves,
+//!    and in `extract` walk the tree, opening a [`RawFunction`] at every
+//!    function-like node and appending each visited node's type id (any
+//!    dense `u16`, e.g. tree-sitter's `node.kind_id()`) to every open
+//!    function.
+//! 2. Add the extractor to [`EXTRACTORS`].
+//!
+//! Nothing else changes: the CLI, the MCP tool, the reporters and the
+//! fixtures pick the new formats up through [`supports_functions`].
 
 use crate::line_index::LineIndex;
 use cpd_core::models::Location;
@@ -17,24 +31,77 @@ use oxc_span::GetSpan;
 /// A function found in a source, before token ranges are attached.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawFunction {
+    /// Grammar that produced `kinds`; functions of different grammars are
+    /// never compared.
+    pub grammar: &'static str,
     pub name: String,
     pub start: Location,
     pub end: Location,
-    /// Pre-order AST node types of the function, itself included.
+    /// Pre-order syntax-tree node types of the function, itself included.
     pub kinds: Vec<u16>,
+}
+
+/// Language plug-in for function extraction.
+pub trait FunctionExtractor: Send + Sync {
+    /// Stable identifier of the grammar behind the node-type ids.
+    fn grammar(&self) -> &'static str;
+    /// jscpd format names this extractor serves.
+    fn formats(&self) -> &'static [&'static str];
+    /// All functions of `source`; empty when the source does not parse.
+    fn extract(&self, source: &str, format: &str) -> Vec<RawFunction>;
+}
+
+/// Registered extractors, consulted in order. Add new languages here.
+pub static EXTRACTORS: &[&dyn FunctionExtractor] = &[&OxcExtractor];
+
+/// The extractor serving `format`, if any.
+pub fn extractor_for(format: &str) -> Option<&'static dyn FunctionExtractor> {
+    EXTRACTORS
+        .iter()
+        .copied()
+        .find(|e| e.formats().contains(&format))
 }
 
 /// Formats handled by [`extract_functions`].
 pub fn supports_functions(format: &str) -> bool {
-    matches!(format, "javascript" | "typescript" | "jsx" | "tsx")
+    extractor_for(format).is_some()
 }
 
-/// Extract every function of a JS/TS source. Returns an empty vector for
-/// unsupported formats and for sources that fail to parse.
+/// Every format some extractor serves, for messages and docs.
+pub fn supported_function_formats() -> Vec<&'static str> {
+    EXTRACTORS
+        .iter()
+        .flat_map(|e| e.formats().iter().copied())
+        .collect()
+}
+
+/// Extract every function of a source. Returns an empty vector for formats
+/// without an extractor and for sources that fail to parse.
 pub fn extract_functions(source: &str, format: &str) -> Vec<RawFunction> {
-    if !supports_functions(format) || source.is_empty() {
-        return Vec::new();
+    match extractor_for(format) {
+        Some(extractor) if !source.is_empty() => extractor.extract(source, format),
+        _ => Vec::new(),
     }
+}
+
+/// JavaScript, TypeScript, JSX and TSX through the oxc parser.
+pub struct OxcExtractor;
+
+impl FunctionExtractor for OxcExtractor {
+    fn grammar(&self) -> &'static str {
+        "oxc"
+    }
+
+    fn formats(&self) -> &'static [&'static str] {
+        &["javascript", "typescript", "jsx", "tsx"]
+    }
+
+    fn extract(&self, source: &str, format: &str) -> Vec<RawFunction> {
+        extract_with_oxc(source, format)
+    }
+}
+
+fn extract_with_oxc(source: &str, format: &str) -> Vec<RawFunction> {
     let allocator = Allocator::new();
     let source_type = crate::javascript::source_type_for_format(format);
     let parsed = Parser::new(&allocator, source, source_type).parse();
@@ -87,6 +154,7 @@ impl Extractor<'_> {
         let start = (frame.start as usize).min(self.len);
         let end = (frame.end as usize).min(self.len);
         self.out.push(RawFunction {
+            grammar: OxcExtractor.grammar(),
             name: frame.name,
             start: self.line_index.location(start),
             end: self.line_index.location(end),
@@ -173,6 +241,20 @@ mod tests {
         assert_eq!(fns[0].name, "inner"); // closed first
         assert_eq!(fns[1].name, "outer");
         assert!(fns[1].kinds.len() > fns[0].kinds.len());
+    }
+
+    #[test]
+    fn registry_dispatches_by_format_and_tags_the_grammar() {
+        assert_eq!(extractor_for("typescript").unwrap().grammar(), "oxc");
+        assert!(extractor_for("python").is_none());
+        let formats = supported_function_formats();
+        for f in ["javascript", "typescript", "jsx", "tsx"] {
+            assert!(formats.contains(&f), "{f}");
+            assert!(supports_functions(f));
+        }
+        let fns = extract_functions("const f = () => 1;", "jsx");
+        assert_eq!(fns.len(), 1);
+        assert_eq!(fns[0].grammar, "oxc");
     }
 
     #[test]

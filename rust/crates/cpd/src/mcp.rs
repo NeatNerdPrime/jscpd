@@ -345,7 +345,9 @@ impl McpServer {
                     extract_functions(&content, &ps.format)
                         .into_iter()
                         .filter_map(|f| {
-                            FunctionSig::build(f.name, f.start, f.end, &f.kinds, &ps.spans)
+                            FunctionSig::build(
+                                f.grammar, f.name, f.start, f.end, &f.kinds, &ps.spans,
+                            )
                         })
                         .collect()
                 } else {
@@ -375,7 +377,7 @@ impl McpServer {
     ) -> Vec<(f32, Value)> {
         let query: Vec<FunctionSig> = extract_functions(code, format)
             .into_iter()
-            .filter_map(|f| FunctionSig::build(f.name, f.start, f.end, &f.kinds, spans))
+            .filter_map(|f| FunctionSig::build(f.grammar, f.name, f.start, f.end, &f.kinds, spans))
             .collect();
         if query.is_empty() {
             return Vec::new();
@@ -515,9 +517,10 @@ impl McpServer {
             payload["similar"] =
                 Value::Array(hits.into_iter().take(limit).map(|(_, v)| v).collect());
             if !supports_functions(format) {
-                payload["similarNote"] = json!(
-                    "function similarity is available for javascript, typescript, jsx and tsx snippets"
-                );
+                payload["similarNote"] = json!(format!(
+                    "function similarity is available for {} snippets",
+                    cpd_tokenizer::functions::supported_function_formats().join(", ")
+                ));
             }
         }
         Ok(payload)

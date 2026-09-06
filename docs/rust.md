@@ -344,7 +344,9 @@ jscpd --similarity 0.85 src/        # near-identical structure: renames, literal
 jscpd --similarity 0.7 src/         # looser: a couple of added or removed statements
 ```
 
-Functions must clear `--min-tokens` and `--min-lines` on their own, nested functions are never paired with their parent, and a pair that an exact, renamed or merged clone already covers is not reported again. Reporting is the same as for merged clones (`kind: similar`, `similarity`, `jscpd/near-miss-code` in SARIF); `tokens` is the smaller function's token count and the fragments span the whole functions. Other languages are not scored yet; the option is silently a no-op for them. Values outside `(0, 1]` print a warning and disable the option. The MCP `check_duplication` tool accepts the same `similarity` argument and returns the structurally similar project functions for each function in the snippet.
+Functions must clear `--min-tokens` and `--min-lines` on their own, nested functions are never paired with their parent, and a pair that an exact, renamed or merged clone already covers is not reported again. Reporting is the same as for merged clones (`kind: similar`, `similarity`, `jscpd/near-miss-code` in SARIF); `tokens` is the smaller function's token count and the fragments span the whole functions. Values outside `(0, 1]` print a warning and disable the option.
+
+Scoring needs a syntax tree, and today only JavaScript/TypeScript have one (oxc). Each language plugs in through the `FunctionExtractor` trait in `cpd-tokenizer` (`functions.rs`): a grammar id, the formats it serves, and a walk that opens a function at every function-like node and records the node-type sequence inside it. Signatures carry their grammar id and are only compared within one grammar, so a tree-sitter-backed extractor for another language is a self-contained addition; the scoring, CLI, MCP tool and reporters need no change. Formats without an extractor are a silent no-op. The MCP `check_duplication` tool accepts the same `similarity` argument and returns the structurally similar project functions for each function in the snippet.
 
 ## Format Support
 
