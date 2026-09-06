@@ -340,15 +340,26 @@ pub fn format_location(
     )
 }
 
+/// Label for a clone header: the format, plus `, renamed` for Type-2 clones
+/// and `, similar ~0.91` for near-miss clones.
+pub fn clone_label(format: &str, kind: CloneKind, similarity: Option<f32>) -> String {
+    match (kind, similarity) {
+        (CloneKind::Exact, _) => format.to_string(),
+        (CloneKind::Renamed, _) => format!("{format}, renamed"),
+        (CloneKind::Similar, Some(s)) => format!("{format}, similar ~{s:.2}"),
+        (CloneKind::Similar, None) => format!("{format}, similar"),
+    }
+}
+
 /// Print a clone header line in console style: `Clone found (format)`, with a
-/// `, renamed` suffix for Type-2 clones and a ` [NEW]` marker for clones
-/// absent from the baseline.
-pub fn print_clone_header(style: &Style, format: &str, is_new: bool, kind: CloneKind) {
-    let header = if kind.is_renamed() {
-        style.bold(&format!("Clone found ({}, renamed)", format))
-    } else {
-        style.bold(&format!("Clone found ({})", format))
-    };
+/// `, renamed` / `, similar ~0.91` suffix for non-exact clones and a ` [NEW]`
+/// marker for clones absent from the baseline.
+pub fn print_clone_header(style: &Style, clone: &CpdClone) {
+    let header = style.bold(&format!(
+        "Clone found ({})",
+        clone_label(&clone.format, clone.kind, clone.similarity)
+    ));
+    let is_new = clone.is_new;
     if is_new {
         println!("{} {}", header, style.red("[NEW]"));
     } else {
@@ -645,6 +656,7 @@ pub mod fixtures {
             token_count,
             is_new: false,
             kind: Default::default(),
+            similarity: None,
         }
     }
 }

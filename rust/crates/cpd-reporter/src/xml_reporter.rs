@@ -209,6 +209,7 @@ mod tests {
             token_count: 50,
             is_new: false,
             kind: Default::default(),
+            similarity: None,
         };
         let opts = ReporterOptions::new(dir.clone());
         let reporter = XmlReporter::new(&opts);

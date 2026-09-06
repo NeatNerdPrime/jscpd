@@ -533,6 +533,7 @@ fn flush_clone(
         token_count: match_len as u32,
         is_new: false,
         kind,
+        similarity: None,
     });
 }
 
@@ -596,6 +597,89 @@ fn make_fragment(
 // ---------------------------------------------------------------------------
 // Deduplication — O(n) FxHashSet + sub-clone suppression
 // ---------------------------------------------------------------------------
+
+/// Gap-tolerant merging (issue #999, stage 1).
+///
+/// Two clones of the same file pair whose fragments follow each other in
+/// *both* files with at most `max_gap_lines` unmatched lines in between are
+/// merged into one `similar` clone spanning both. `token_count` becomes the
+/// number of matched tokens and `similarity` the matched tokens divided by
+/// the tokens of the longer merged span. Chains merge transitively. With
+/// `max_gap_lines == 0` the input is returned as-is, so default runs never
+/// enter this pass.
+pub fn merge_gapped_clones(mut clones: Vec<CpdClone>, max_gap_lines: usize) -> Vec<CpdClone> {
+    if max_gap_lines == 0 || clones.len() < 2 {
+        return clones;
+    }
+    clones.sort_by(|x, y| {
+        pair_key(x)
+            .cmp(&pair_key(y))
+            .then(x.fragment_a.range[0].cmp(&y.fragment_a.range[0]))
+            .then(x.fragment_b.range[0].cmp(&y.fragment_b.range[0]))
+    });
+    let mut merged: Vec<CpdClone> = Vec::with_capacity(clones.len());
+    let mut matched_tokens: u32 = 0;
+    for clone in clones {
+        match merged.last_mut() {
+            Some(last) if pair_key(last) == pair_key(&clone) => {
+                // Both fragments must continue after `last`'s. Adjacent exact
+                // windows may share their boundary token; that overlap is
+                // matched once.
+                let Some(overlap_a) =
+                    continuation(&last.fragment_a, &clone.fragment_a, max_gap_lines)
+                else {
+                    matched_tokens = clone.token_count;
+                    merged.push(clone);
+                    continue;
+                };
+                let Some(overlap_b) =
+                    continuation(&last.fragment_b, &clone.fragment_b, max_gap_lines)
+                else {
+                    matched_tokens = clone.token_count;
+                    merged.push(clone);
+                    continue;
+                };
+                matched_tokens += clone.token_count.saturating_sub(overlap_a.max(overlap_b));
+                last.fragment_a.end = clone.fragment_a.end.clone();
+                last.fragment_a.range[1] = clone.fragment_a.range[1];
+                last.fragment_b.end = clone.fragment_b.end.clone();
+                last.fragment_b.range[1] = clone.fragment_b.range[1];
+                let span_a = last.fragment_a.range[1] - last.fragment_a.range[0] + 1;
+                let span_b = last.fragment_b.range[1] - last.fragment_b.range[0] + 1;
+                last.token_count = matched_tokens;
+                last.similarity = Some(matched_tokens as f32 / span_a.max(span_b) as f32);
+                last.kind = CloneKind::Similar;
+            }
+            _ => {
+                matched_tokens = clone.token_count;
+                merged.push(clone);
+            }
+        }
+    }
+    merged
+}
+
+fn pair_key(c: &CpdClone) -> (&str, &str, &str) {
+    (
+        c.format.as_str(),
+        c.fragment_a.source_id.as_str(),
+        c.fragment_b.source_id.as_str(),
+    )
+}
+
+/// `next` extends `prev` when it starts after `prev` starts, ends after
+/// `prev` ends, and at most `max_gap_lines` lines lie between them. Returns
+/// the number of tokens the two windows share at the boundary.
+fn continuation(prev: &Fragment, next: &Fragment, max_gap_lines: usize) -> Option<u32> {
+    if next.range[0] <= prev.range[0] || next.range[1] <= prev.range[1] {
+        return None;
+    }
+    let gap = (next.start.line as usize).saturating_sub(prev.end.line as usize + 1);
+    if gap > max_gap_lines {
+        return None;
+    }
+    Some((prev.range[1] + 1).saturating_sub(next.range[0]))
+}
 
 fn dedup_exact_clones(clones: &mut Vec<CpdClone>) {
     // Normalize each clone so fragment_a <= fragment_b (by id then start line).
@@ -797,6 +881,7 @@ fn add_secondary_clones(
                 token_count: min_tokens as u32,
                 is_new: false,
                 kind: Default::default(),
+                similarity: None,
             },
             source_a: candidate.source_a,
             source_b: candidate.source_b,
@@ -985,6 +1070,118 @@ mod tests {
             end: loc,
             range: [line as usize, line as usize + 1],
         }
+    }
+
+    /// A clone of `format` between `a` and `b` covering the given token index
+    /// ranges (inclusive) and line ranges.
+    fn gap_clone(
+        a: &str,
+        a_tok: [u32; 2],
+        a_lines: [u32; 2],
+        b: &str,
+        b_tok: [u32; 2],
+        b_lines: [u32; 2],
+    ) -> CpdClone {
+        let frag = |id: &str, tok: [u32; 2], lines: [u32; 2]| Fragment {
+            source_id: id.to_string(),
+            source_root: None,
+            start: Location {
+                line: lines[0],
+                column: 1,
+                offset: tok[0],
+            },
+            end: Location {
+                line: lines[1],
+                column: 1,
+                offset: tok[1],
+            },
+            range: tok,
+            blame: None,
+        };
+        CpdClone {
+            format: "javascript".to_string(),
+            fragment_a: frag(a, a_tok, a_lines),
+            fragment_b: frag(b, b_tok, b_lines),
+            token_count: a_tok[1] - a_tok[0] + 1,
+            is_new: false,
+            kind: CloneKind::Exact,
+            similarity: None,
+        }
+    }
+
+    #[test]
+    fn merge_gapped_is_a_no_op_at_zero() {
+        let clones = vec![
+            gap_clone("a", [0, 9], [1, 4], "b", [0, 9], [1, 4]),
+            gap_clone("a", [10, 19], [5, 8], "b", [12, 21], [6, 9]),
+        ];
+        let out = merge_gapped_clones(clones.clone(), 0);
+        assert_eq!(out, clones);
+    }
+
+    #[test]
+    fn merge_gapped_joins_adjacent_fragments_within_gap() {
+        // a: lines 1-4 then 5-8 (no gap); b: lines 1-4 then 6-9 (one inserted line)
+        let clones = vec![
+            gap_clone("a", [0, 9], [1, 4], "b", [0, 9], [1, 4]),
+            gap_clone("a", [10, 19], [5, 8], "b", [12, 21], [6, 9]),
+        ];
+        let out = merge_gapped_clones(clones, 1);
+        assert_eq!(out.len(), 1);
+        let c = &out[0];
+        assert_eq!(c.kind, CloneKind::Similar);
+        assert_eq!(c.token_count, 20, "matched tokens");
+        assert_eq!(c.fragment_a.range, [0, 19]);
+        assert_eq!(c.fragment_b.range, [0, 21]);
+        assert_eq!(c.fragment_a.end.line, 8);
+        assert_eq!(c.fragment_b.end.line, 9);
+        // 20 matched over the longer span of 22 tokens
+        assert!((c.similarity.unwrap() - 20.0 / 22.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn merge_gapped_respects_the_line_limit_and_file_pair() {
+        let far = vec![
+            gap_clone("a", [0, 9], [1, 4], "b", [0, 9], [1, 4]),
+            gap_clone("a", [10, 19], [5, 8], "b", [20, 29], [8, 11]), // 3-line gap in b
+        ];
+        assert_eq!(merge_gapped_clones(far.clone(), 2).len(), 2);
+        assert_eq!(merge_gapped_clones(far, 3).len(), 1);
+
+        let other_pair = vec![
+            gap_clone("a", [0, 9], [1, 4], "b", [0, 9], [1, 4]),
+            gap_clone("a", [10, 19], [5, 8], "c", [10, 19], [5, 8]),
+        ];
+        assert_eq!(merge_gapped_clones(other_pair, 5).len(), 2);
+    }
+
+    #[test]
+    fn merge_gapped_counts_a_shared_boundary_token_once_and_chains() {
+        // second window starts on the last token of the first in `a`
+        let clones = vec![
+            gap_clone("a", [0, 9], [1, 4], "b", [0, 9], [1, 4]),
+            gap_clone("a", [9, 18], [4, 8], "b", [11, 20], [6, 9]),
+            gap_clone("a", [19, 28], [9, 12], "b", [22, 31], [10, 13]),
+        ];
+        let out = merge_gapped_clones(clones, 1);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].token_count, 29, "10 + (10 - 1 overlap) + 10");
+        assert_eq!(out[0].fragment_a.range, [0, 28]);
+        assert_eq!(out[0].fragment_b.range, [0, 31]);
+    }
+
+    #[test]
+    fn merge_gapped_never_merges_overlapping_or_reordered_fragments() {
+        let nested = vec![
+            gap_clone("a", [0, 19], [1, 8], "b", [0, 19], [1, 8]),
+            gap_clone("a", [5, 9], [3, 4], "b", [5, 9], [3, 4]),
+        ];
+        assert_eq!(merge_gapped_clones(nested, 5).len(), 2);
+        let crossed = vec![
+            gap_clone("a", [0, 9], [1, 4], "b", [20, 29], [10, 13]),
+            gap_clone("a", [10, 19], [5, 8], "b", [0, 9], [1, 4]),
+        ];
+        assert_eq!(merge_gapped_clones(crossed, 5).len(), 2);
     }
 
     #[test]

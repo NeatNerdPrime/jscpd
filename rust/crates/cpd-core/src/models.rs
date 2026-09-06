@@ -67,6 +67,9 @@ pub enum CloneKind {
     /// normalization (`--ignore-identifiers`, `--ignore-literals`,
     /// `--ignore-annotations`): a Type-2 clone.
     Renamed,
+    /// Two or more matches of the same file pair merged across a gap of
+    /// unmatched lines (`--max-gap-lines`): a Type-3 near-miss clone.
+    Similar,
 }
 
 impl CloneKind {
@@ -74,10 +77,19 @@ impl CloneKind {
         matches!(self, CloneKind::Renamed)
     }
 
+    pub fn is_similar(self) -> bool {
+        matches!(self, CloneKind::Similar)
+    }
+
+    pub fn is_exact(self) -> bool {
+        matches!(self, CloneKind::Exact)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             CloneKind::Exact => "exact",
             CloneKind::Renamed => "renamed",
+            CloneKind::Similar => "similar",
         }
     }
 }
@@ -93,7 +105,7 @@ pub struct Fragment {
     pub blame: Option<BlameEntry>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CpdClone {
     pub format: String,
     pub fragment_a: Fragment,
@@ -108,6 +120,19 @@ pub struct CpdClone {
     /// when no normalization option is on.
     #[serde(default)]
     pub kind: CloneKind,
+    /// For `similar` clones: matched tokens divided by the tokens of the
+    /// longer merged span, in `(0, 1)`. `None` for exact and renamed clones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub similarity: Option<f32>,
+}
+
+impl CpdClone {
+    /// `similarity` rounded to three decimals as an f64, the form reporters
+    /// print (an f32 widened to JSON would print as `0.8510638475418091`).
+    pub fn similarity_rounded(&self) -> Option<f64> {
+        self.similarity
+            .map(|s| (f64::from(s) * 1000.0).round() / 1000.0)
+    }
 }
 
 /// Internal detection unit — no heap allocation per token.
@@ -251,6 +276,7 @@ mod tests {
             token_count: 50,
             is_new: false,
             kind: Default::default(),
+            similarity: None,
         };
         let json = serde_json::to_string(&clone).unwrap();
         assert!(json.contains("abc123"));

@@ -83,6 +83,7 @@ cpd [OPTIONS] [PATH]...
 | `--ignore-identifiers` | | Treat all identifiers as equal, so clones that differ only in variable, function or type names are found. See [Type-2 clones](#type-2-clones-renamed-identifiers-literals-and-annotations) | off |
 | `--ignore-literals` | | Treat all string literals as equal and all numeric literals as equal | off |
 | `--ignore-annotations` | | Skip annotations and decorators (`@Name`, `@Name(...)`) before detection | off |
+| `--max-gap-lines` | | Merge clones of one file pair separated by at most N unmatched lines in both files into one near-miss clone reported as `similar`. See [Type-3 clones](#type-3-clones-near-miss-merging-with---max-gap-lines) | 0 (off) |
 | `--formats-exts` | | Custom format-to-extension mapping (e.g. `javascript:es,es6;dart:dt`) | — |
 | `--formats-names` | | Custom format-to-filename mapping | — |
 | `--cross-formats` | | Detect clones across formats: `;`-separated groups of `,`-separated formats (e.g. `javascript,typescript`). Preset `js-ts` = `javascript,jsx,typescript,tsx` | — |
@@ -248,6 +249,7 @@ Options can also come from a `.jscpd.json` config file (camelCase keys; existing
   "ignoreIdentifiers": false,
   "ignoreLiterals": false,
   "ignoreAnnotations": false,
+  "maxGapLines": 0,
   "gitignore": true,
   "mode": "mild"
 }
@@ -318,6 +320,21 @@ jscpd --ignore-annotations src/main/java/             # @Override / @Deprecated 
 ```
 
 Normalized runs find more and longer clones than exact runs, so their snippet fingerprints (`jscpdCloneHash/v1`) differ from an exact run's. Keep a separate `--baseline` file per configuration. See [`fixtures/type2-demo`](../fixtures/type2-demo/README.md) for a runnable example of each flag.
+
+### Type-3 clones: near-miss merging with `--max-gap-lines`
+
+A copy with a line inserted, removed or changed in the middle shows up as two shorter exact clones with a gap between them, each of which must clear `--min-tokens` and `--min-lines` on its own. `--max-gap-lines N` (config key `maxGapLines`) merges clones of the same file pair whose fragments follow each other in *both* files with at most `N` unmatched lines in between, and reports the result as one clone of kind `similar`:
+
+```bash
+jscpd src/                       # a.js 1-4 ↔ b.js 1-4, a.js 4-9 ↔ b.js 5-10: two exact clones
+jscpd --max-gap-lines 1 src/     # Clone found (javascript, similar ~0.85): a.js 1-9 ↔ b.js 1-10
+```
+
+A merged clone's `tokens` is the number of matched tokens and `similarity` is that number divided by the tokens of the longer merged span, so a single inserted line in a 60-token block gives roughly `0.9`. Chains of matches merge transitively, and the merge is applied after every other filter (`--min-lines`, `--skip-local`, `--skip-isolated`). Because merging only ever joins clones the exact run already reported, it cannot introduce a match that was not there; it removes fragmentation. It applies to every language.
+
+Reporting: the console prints `Clone found (javascript, similar ~0.85)`, the `ai` reporter appends `[~0.85]`, the JSON report adds `"kind": "similar"` and a `"similarity"` value, SARIF files merged clones under `jscpd/near-miss-code` with a `similarity` property, and Code Climate uses the same `check_name`. Duplicated-line statistics count the merged span, gap lines included. With the default `0` the merge pass is skipped entirely and output is identical to earlier releases. See [`fixtures/type3-demo`](../fixtures/type3-demo/README.md) for a runnable example.
+
+Function-level similarity scoring for JavaScript and TypeScript (AST-based, catching edits spread through a function rather than a single gap) is the second stage of [#999](https://github.com/kucherenko/jscpd/issues/999) and is not part of this option.
 
 ## Format Support
 

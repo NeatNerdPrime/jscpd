@@ -346,6 +346,7 @@ mod tests {
             token_count: tokens,
             is_new: false,
             kind: Default::default(),
+            similarity: None,
         }
     }
 

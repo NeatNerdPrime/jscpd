@@ -213,6 +213,10 @@ pub struct Cli {
     #[arg(long, short = 'x')]
     pub max_lines: Option<usize>,
 
+    /// Merge clones of the same file pair that are separated by at most N unmatched lines in both files into one near-miss clone (Type-3, reported as "similar"); 0 disables
+    #[arg(long, value_name = "N")]
+    pub max_gap_lines: Option<usize>,
+
     /// Detection mode: mild, weak, strict
     #[arg(long, short = 'm')]
     pub mode: Option<String>,
@@ -409,6 +413,8 @@ pub struct ConfigFile {
     pub min_lines: Option<usize>,
     #[serde(alias = "max-lines")]
     pub max_lines: Option<usize>,
+    #[serde(alias = "max-gap-lines")]
+    pub max_gap_lines: Option<usize>,
     pub mode: Option<String>,
     #[serde(alias = "formats")]
     pub format: Option<Vec<String>>,
@@ -623,6 +629,7 @@ pub(crate) static KNOWN_CONFIG_FIELDS: &[&str] = &[
     "minTokens",
     "minLines",
     "maxLines",
+    "maxGapLines",
     "mode",
     "format",
     "formats",
@@ -660,6 +667,7 @@ pub(crate) static KNOWN_CONFIG_FIELDS: &[&str] = &[
     "min-tokens",
     "min-lines",
     "max-lines",
+    "max-gap-lines",
     "max-size",
     "ignore-case",
     "ignore-identifiers",
@@ -1408,6 +1416,27 @@ mod tests {
         let long = Cli::parse_from(["cpd", "--blame", "."]);
         assert_eq!(short.blame, long.blame);
         assert!(short.blame);
+    }
+
+    #[test]
+    fn max_gap_lines_flag_and_config() {
+        let cli = Cli::parse_from(["cpd", "--max-gap-lines", "2", "."]);
+        assert_eq!(cli.max_gap_lines, Some(2));
+        let opts = crate::options::Options::from_cli_and_config(&cli, &ConfigFile::default());
+        assert_eq!(opts.max_gap_lines, 2);
+
+        let cli = Cli::parse_from(["cpd", "."]);
+        let opts = crate::options::Options::from_cli_and_config(&cli, &ConfigFile::default());
+        assert_eq!(opts.max_gap_lines, 0, "off by default");
+
+        let config = ConfigFile {
+            max_gap_lines: Some(3),
+            ..Default::default()
+        };
+        let opts = crate::options::Options::from_cli_and_config(&cli, &config);
+        assert_eq!(opts.max_gap_lines, 3);
+        let v: ConfigFile = serde_json::from_str(r#"{"max-gap-lines": 1}"#).unwrap();
+        assert_eq!(v.max_gap_lines, Some(1));
     }
 
     #[test]

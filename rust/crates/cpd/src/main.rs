@@ -290,6 +290,7 @@ fn main() {
         min_tokens: opts.min_tokens,
         min_lines: opts.min_lines,
         max_lines: opts.max_lines,
+        max_gap_lines: opts.max_gap_lines,
         mode: opts.mode,
         formats: opts.formats.clone(),
         ignore: opts.ignore.clone(),

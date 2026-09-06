@@ -105,6 +105,10 @@ inputs:
     description: "Skip annotations and decorators (@Name, @Name(...))"
     required: false
     default: "false"
+  max-gap-lines:
+    description: "Merge clones separated by at most N unmatched lines into one near-miss clone (Type-3); 0 disables"
+    required: false
+    default: ""
   follow-symlinks:
     description: "Follow symbolic links"
     required: false
@@ -282,6 +286,7 @@ runs:
         INPUT_IGNORE_IDENTIFIERS: ${{ inputs.ignore-identifiers }}
         INPUT_IGNORE_LITERALS: ${{ inputs.ignore-literals }}
         INPUT_IGNORE_ANNOTATIONS: ${{ inputs.ignore-annotations }}
+        INPUT_MAX_GAP_LINES: ${{ inputs.max-gap-lines }}
         INPUT_FOLLOW_SYMLINKS: ${{ inputs.follow-symlinks }}
         INPUT_NO_GITIGNORE: ${{ inputs.no-gitignore }}
         INPUT_ABSOLUTE: ${{ inputs.absolute }}
@@ -407,6 +412,9 @@ runs:
         fi
         if [ "$INPUT_IGNORE_ANNOTATIONS" = "true" ]; then
           ARGS+=("--ignore-annotations")
+        fi
+        if [ -n "$INPUT_MAX_GAP_LINES" ]; then
+          ARGS+=("--max-gap-lines" "$INPUT_MAX_GAP_LINES")
         fi
         if [ "$INPUT_FOLLOW_SYMLINKS" = "true" ]; then
           ARGS+=("--follow-symlinks")

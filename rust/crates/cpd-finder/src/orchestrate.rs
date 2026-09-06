@@ -2,7 +2,7 @@
 
 use crate::statistics;
 use crate::walker::{WalkConfig, walk};
-use cpd_core::detect::{PathFilters, PreparedSource, detect_prepared};
+use cpd_core::detect::{PathFilters, PreparedSource, detect_prepared, merge_gapped_clones};
 use cpd_core::models::{CpdClone, SourceFile, Statistics};
 use cpd_tokenizer::tokenizer::{
     Mode, TokenizeOptions, code_ignore_ranges, tokenize_to_detection, tokenize_to_detection_maps,
@@ -16,6 +16,9 @@ pub struct RunConfig {
     pub min_tokens: usize,
     pub min_lines: usize,
     pub max_lines: Option<usize>,
+    /// Merge clones of one file pair separated by at most this many unmatched
+    /// lines into a `similar` clone (issue #999). 0 = off.
+    pub max_gap_lines: usize,
     pub mode: Mode,
     pub formats: Vec<String>,
     pub ignore: Vec<String>,
@@ -49,6 +52,7 @@ impl Default for RunConfig {
             min_tokens: 50,
             min_lines: 5,
             max_lines: None,
+            max_gap_lines: 0,
             mode: Mode::Mild,
             formats: vec![],
             ignore: vec![],
@@ -168,6 +172,9 @@ pub fn run(config: &RunConfig) -> Result<RunResult, FinderError> {
             },
         )
     });
+
+    // 4b. Near-miss merging — a no-op unless --max-gap-lines is set.
+    let clones = merge_gapped_clones(clones, config.max_gap_lines);
 
     // 5. Compute statistics.
     let statistics = statistics::compute(&source_files, &clones);

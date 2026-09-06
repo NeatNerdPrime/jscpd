@@ -224,6 +224,7 @@ mod tests {
             token_count: 50,
             is_new: false,
             kind: Default::default(),
+            similarity: None,
         };
         let mut stats = empty_stats();
         stats.total.clones = 1;

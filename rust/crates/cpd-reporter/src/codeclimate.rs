@@ -89,7 +89,11 @@ fn make_issue(
 ) -> Value {
     json!({
         "type": "issue",
-        "check_name": if clone.kind.is_renamed() { "jscpd/similar-code" } else { "jscpd/duplicate-code" },
+        "check_name": match clone.kind {
+            cpd_core::models::CloneKind::Exact => "jscpd/duplicate-code",
+            cpd_core::models::CloneKind::Renamed => "jscpd/similar-code",
+            cpd_core::models::CloneKind::Similar => "jscpd/near-miss-code",
+        },
         "description": format!(
             "Duplicated code block ({} tokens), duplicated at {}:{}",
             clone.token_count,
