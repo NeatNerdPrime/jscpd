@@ -84,7 +84,7 @@ cpd [OPTIONS] [PATH]...
 | `--ignore-literals` | | Treat all string literals as equal and all numeric literals as equal | off |
 | `--ignore-annotations` | | Skip annotations and decorators (`@Name`, `@Name(...)`) before detection | off |
 | `--max-gap-lines` | | Merge clones of one file pair separated by at most N unmatched lines in both files into one near-miss clone reported as `similar`. See [Type-3 clones](#type-3-clones-near-miss-merging-with---max-gap-lines) | 0 (off) |
-| `--similarity` | | Report JavaScript/TypeScript function pairs whose syntax-tree similarity reaches RATIO (0-1) as `similar` clones. See [function similarity](#function-level-similarity-with---similarity) | off |
+| `--similarity` | | Report JavaScript/TypeScript function pairs whose syntax-tree similarity reaches RATIO, a number in `(0, 1]`, as `similar` clones; omit to disable. See [function similarity](#function-level-similarity-with---similarity) | off |
 | `--formats-exts` | | Custom format-to-extension mapping (e.g. `javascript:es,es6;dart:dt`) | — |
 | `--formats-names` | | Custom format-to-filename mapping | — |
 | `--cross-formats` | | Detect clones across formats: `;`-separated groups of `,`-separated formats (e.g. `javascript,typescript`). Preset `js-ts` = `javascript,jsx,typescript,tsx` | — |

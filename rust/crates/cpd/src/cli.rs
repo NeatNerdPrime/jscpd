@@ -217,7 +217,7 @@ pub struct Cli {
     #[arg(long, value_name = "N")]
     pub max_gap_lines: Option<usize>,
 
-    /// Report JavaScript/TypeScript function pairs whose AST similarity reaches RATIO (0-1, e.g. 0.85) as near-miss clones (Type-3, "similar")
+    /// Report JavaScript/TypeScript function pairs whose AST similarity reaches RATIO (a number in (0, 1], e.g. 0.85; omit to disable) as near-miss clones (Type-3, "similar")
     #[arg(long, value_name = "RATIO")]
     pub similarity: Option<f32>,
 

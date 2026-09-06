@@ -54,10 +54,10 @@ pub struct McpServer {
     scan_roots: Vec<PathBuf>,
     /// Canonicalized isolation groups, for skip_isolated.
     isolated_groups: Vec<Vec<PathBuf>>,
-    /// Function signatures of the JS/TS sources, built on the first
-    /// check_duplication call with a 'similarity' argument and dropped on
-    /// rescan.
-    function_index: OnceLock<Vec<FunctionSource>>,
+    /// LSH index over the functions of the JS/TS sources, built on the first
+    /// check_duplication call with a 'similarity' argument, reused by every
+    /// later query, and dropped on rescan.
+    function_index: OnceLock<SimilarityIndex>,
 }
 
 impl McpServer {
@@ -328,10 +328,10 @@ impl McpServer {
         })
     }
 
-    /// Function signatures of every JS/TS source in the pools. Built once per
+    /// Similarity index over every JS/TS source in the pools. Built once per
     /// scan on demand: prepared sources keep only token spans, so files are
     /// re-read from disk unless the scan already ran with --similarity.
-    fn function_sources(&self) -> &Vec<FunctionSource> {
+    fn similarity_index(&self) -> &SimilarityIndex {
         self.function_index.get_or_init(|| {
             let mut out = Vec::new();
             for ps in self.pools.values().flatten() {
@@ -360,7 +360,7 @@ impl McpServer {
                 }
             }
             out.sort_by(|a, b| a.id.cmp(&b.id));
-            out
+            SimilarityIndex::build(out, self.config.min_tokens, self.config.min_lines)
         })
     }
 
@@ -380,8 +380,8 @@ impl McpServer {
         if query.is_empty() {
             return Vec::new();
         }
-        let sources = self.function_sources();
-        let index = SimilarityIndex::build(sources, self.config.min_tokens, self.config.min_lines);
+        let index = self.similarity_index();
+        let sources = index.sources();
         let mut hits = Vec::new();
         for q in &query {
             for (si, fi, sim) in index.query(q, threshold) {

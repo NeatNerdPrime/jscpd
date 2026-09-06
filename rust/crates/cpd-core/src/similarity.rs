@@ -176,9 +176,11 @@ pub fn collect_function_sources(prepared: &[PreparedSource]) -> Vec<FunctionSour
         .collect()
 }
 
-/// LSH index over the functions of many sources.
-pub struct SimilarityIndex<'a> {
-    sources: &'a [FunctionSource],
+/// LSH index over the functions of many sources. Owns its sources so a
+/// long-lived holder (the MCP server) can build it once per scan and answer
+/// any number of queries from it.
+pub struct SimilarityIndex {
+    sources: Vec<FunctionSource>,
     /// (source index, function index) per item.
     items: Vec<(usize, usize)>,
     buckets: FxHashMap<(u8, u64), Vec<usize>>,
@@ -186,10 +188,10 @@ pub struct SimilarityIndex<'a> {
     min_lines: u32,
 }
 
-impl<'a> SimilarityIndex<'a> {
+impl SimilarityIndex {
     /// Index every function with at least `min_tokens` tokens and a line
     /// span of at least `min_lines` (jscpd's usual clone thresholds).
-    pub fn build(sources: &'a [FunctionSource], min_tokens: usize, min_lines: usize) -> Self {
+    pub fn build(sources: Vec<FunctionSource>, min_tokens: usize, min_lines: usize) -> Self {
         let mut items = Vec::new();
         let mut buckets: FxHashMap<(u8, u64), Vec<usize>> = FxHashMap::default();
         for (si, src) in sources.iter().enumerate() {
@@ -213,11 +215,16 @@ impl<'a> SimilarityIndex<'a> {
         }
     }
 
+    /// The indexed sources, in the order they were given.
+    pub fn sources(&self) -> &[FunctionSource] {
+        &self.sources
+    }
+
     fn eligible(f: &FunctionSig, min_tokens: u32, min_lines: u32) -> bool {
         f.token_count >= min_tokens && f.line_span() >= min_lines
     }
 
-    fn sig(&self, item: usize) -> &'a FunctionSig {
+    fn sig(&self, item: usize) -> &FunctionSig {
         let (si, fi) = self.items[item];
         &self.sources[si].functions[fi]
     }
@@ -295,7 +302,7 @@ impl<'a> SimilarityIndex<'a> {
 
 /// Find similar function pairs across `sources` (issue #999, stage 2).
 pub fn find_similar_functions(
-    sources: &[FunctionSource],
+    sources: Vec<FunctionSource>,
     threshold: f32,
     min_tokens: usize,
     min_lines: usize,
@@ -494,7 +501,7 @@ mod tests {
                 functions: vec![sig("edited", &edited, 0, 62), sig("other", &other, 70, 140)],
             },
         ];
-        let clones = find_similar_functions(&sources, 0.75, 10, 3, &[]);
+        let clones = find_similar_functions(sources.clone(), 0.75, 10, 3, &[]);
         assert_eq!(clones.len(), 1, "{clones:?}");
         let c = &clones[0];
         assert_eq!(c.kind, CloneKind::Similar);
@@ -505,7 +512,7 @@ mod tests {
         // two node edits in 80 nodes break 8 of the 77 shingles
         assert!(sim > 0.75 && sim < 0.9, "got {sim}");
         assert_eq!(c.token_count, 61);
-        assert!(find_similar_functions(&sources, 0.99, 10, 3, &[]).is_empty());
+        assert!(find_similar_functions(sources.clone(), 0.99, 10, 3, &[]).is_empty());
     }
 
     #[test]
@@ -518,7 +525,7 @@ mod tests {
             format: "javascript".into(),
             functions: vec![outer.clone(), inner],
         }];
-        assert!(find_similar_functions(&same_file, 0.5, 10, 3, &[]).is_empty());
+        assert!(find_similar_functions(same_file.clone(), 0.5, 10, 3, &[]).is_empty());
 
         let two = vec![
             FunctionSource {
@@ -532,13 +539,16 @@ mod tests {
                 functions: vec![sig("copy", &base, 0, 60)],
             },
         ];
-        assert_eq!(find_similar_functions(&two, 0.5, 10, 3, &[]).len(), 1);
+        assert_eq!(
+            find_similar_functions(two.clone(), 0.5, 10, 3, &[]).len(),
+            1
+        );
         assert!(
-            find_similar_functions(&two, 0.5, 100, 3, &[]).is_empty(),
+            find_similar_functions(two.clone(), 0.5, 100, 3, &[]).is_empty(),
             "min_tokens"
         );
         assert!(
-            find_similar_functions(&two, 0.5, 10, 100, &[]).is_empty(),
+            find_similar_functions(two.clone(), 0.5, 10, 100, &[]).is_empty(),
             "min_lines"
         );
 
@@ -546,7 +556,7 @@ mod tests {
         exact.kind = CloneKind::Exact;
         exact.similarity = None;
         assert!(
-            find_similar_functions(&two, 0.5, 10, 3, &[exact]).is_empty(),
+            find_similar_functions(two.clone(), 0.5, 10, 3, &[exact]).is_empty(),
             "already reported"
         );
     }
@@ -565,7 +575,7 @@ mod tests {
             format: "javascript".into(),
             functions: vec![sig("far", &far, 0, 60), sig("near", &near, 70, 130)],
         }];
-        let index = SimilarityIndex::build(&sources, 10, 3);
+        let index = SimilarityIndex::build(sources, 10, 3);
         let hits = index.query(&sig("q", &base, 0, 60), 0.5);
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].1, 1, "near first");

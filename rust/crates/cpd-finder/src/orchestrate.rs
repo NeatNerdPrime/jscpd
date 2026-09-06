@@ -189,7 +189,7 @@ pub fn run(config: &RunConfig) -> Result<RunResult, FinderError> {
     // 4c. Function-level similarity — only when --similarity is set.
     if let Some(threshold) = config.similarity {
         let similar = find_similar_functions(
-            &function_sources,
+            function_sources,
             threshold,
             config.min_tokens,
             config.min_lines,
